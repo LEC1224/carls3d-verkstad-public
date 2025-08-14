@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Order {
+  id          Int      @id @default(autoincrement())
+  createdAt   DateTime @default(now())
+  name        String
+  email       String
+  type        String // "standard" or "lithophane"
+  material    String?
+  color       String?
+  price       Float
+  status      String   @default("Ny")
+  files       String[] @db.Text // JSON string array
+}
