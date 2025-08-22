@@ -7,7 +7,7 @@ import { priceCartBreakdown } from "../../lib/pricing";
 
 export const config = { api: { bodyParser: false } };
 const ALLOWED_3D_EXT = new Set([".stl", ".obj"]);
-const MAX_FILE_SIZE = 100 * 1024 * 1024;
+const MAX_FILE_SIZE = 1000 * 1024 * 1024;
 
 function ensureDir(dir: string) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
 function parseForm(req: NextApiRequest, uploadDir: string) {

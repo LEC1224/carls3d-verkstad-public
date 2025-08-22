@@ -62,8 +62,9 @@ export function priceCartBreakdown(entries: CartEntry[], uniqueFileCount: number
       materialCost: cost,
     });
   }
+  
+  const baseFee = Number(process.env.START_FEE || 50);
 
-  const baseFee = 40; // Ny startavgift
   const fileFee = Math.max(uniqueFileCount - 1, 0) * 10;
   const shipping = shippingForWeight(totalGrams + PACKAGING_GRAMS);
   const total = baseFee + materialCost + fileFee + shipping;
