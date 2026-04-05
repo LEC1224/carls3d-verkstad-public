@@ -42,6 +42,8 @@ export async function notifyOrder(order: OrderLike) {
   const title =
     order.type === "lithophane"
       ? "🖼️ Ny Lithophane-beställning"
+      : order.type === "minecraft-torch"
+        ? "🔥 Ny Minecraft-fackla-beställning"
       : "🖨️ Ny 3D-printbeställning";
 
   // Build file/item list
@@ -68,7 +70,7 @@ export async function notifyOrder(order: OrderLike) {
     {
       title,
       description: `Beställning ${order.orderNumber ?? "#" + order.id ?? "—"} • ${now}`,
-      color: order.type === "lithophane" ? 0x5865f2 : 0x57f287,
+      color: order.type === "lithophane" ? 0x5865f2 : order.type === "minecraft-torch" ? 0xf59e0b : 0x57f287,
       fields: [
         { name: "Namn", value: order.name || "—", inline: true },
         { name: "E-post", value: order.email || "—", inline: true },

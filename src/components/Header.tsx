@@ -5,6 +5,7 @@ import { useRouter } from "next/router";
 const nav = [
   { href: "/bestall", label: "Beställ" },
   { href: "/lithophane", label: "Lithophane-lampa" },
+  { href: "/minecraft-torch", label: "Minecraft-fackla" },
   { href: "/om-kontakt", label: "Om & kontakt" },
   // { href: "/admin", label: "Admin" },
 ];
