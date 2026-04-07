@@ -66,7 +66,8 @@ export default function LithophaneOrder() {
           className="rounded-xl shadow max-w-full"
         />
         <p className="mb-2">Ladda upp 4 bilder. Om de inte är kvadratiska beskärs de av oss.</p>
-        <p className="mb-6">Fast pris: <span className="font-semibold">500 kr</span> (vit PLA, inkl. LED och strömbrytare).</p>
+        <p className="mb-6">Fast pris: <span className="font-semibold">500 kr</span>.</p>
+        <p className="mb-6">I priset ingår kuben i vit PLA, LED-ljuskälla, 3,5 m sladd med strömbrytare och frakt.</p>
 
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">

@@ -81,6 +81,7 @@ export default function MinecraftTorchOrder() {
           Pris: <span className="font-semibold">100 kr startavgift</span> +{" "}
           <span className="font-semibold">150 kr per fackla</span>.
         </p>
+        <p className="mb-6">I priset ingår alla 3D-utskrifter, LED-ljuskälla, 3 m sladd med strömbrytare, montering, skruvar och frakt!</p>
         <p className="mb-6 text-gray-700">
           Totalt just nu: <span className="font-semibold">{totalPrice} kr</span> för {quantity} st.
         </p>
