@@ -56,19 +56,19 @@ export default function HomeLanding() {
     <Layout>
       <section className="mx-auto max-w-7xl">
         {/* Hero */}
-        <div className="mt-8 text-center">
-          <div className="inline-flex items-center gap-3 rounded-full border px-3 py-1 text-xs text-gray-600 bg-white shadow-sm">
+        <div className="mt-4 text-center sm:mt-8">
+          <div className="inline-flex max-w-full items-center gap-3 rounded-full border bg-white px-3 py-1 text-xs text-gray-600 shadow-sm">
             🧵 FDM-utskrift • PLA/PETG/ABS/ASA/TPU
           </div>
-          <h1 className="mt-4 text-4xl font-bold tracking-tight">
+          <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
             3D-utskrifter på beställning – <br />
             <span className="text-gray-700">Carl’s 3D-verkstad</span>
           </h1>
-          <p className="mx-auto mt-4 max-w-3xl text-gray-700">
+          <p className="mx-auto mt-4 max-w-3xl text-base text-gray-700 sm:text-lg">
             Snabba och snygga prototyper, reservdelar, inredning och presenter.
             Jag skriver ut med en BambuLab P1S (25×25×25 cm) och kan skriva i upp till fyra färger i samma 3D-modell.
           </p>
-          <div className="mt-6 flex justify-center gap-3">
+          <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
             <Link href="/bestall" className="rounded-xl bg-black px-5 py-2.5 text-white hover:bg-black/90">
               Beställ 3D-utskrift
             </Link>

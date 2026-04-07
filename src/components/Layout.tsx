@@ -13,9 +13,9 @@ export default function Layout({ title, children }: Props) {
         <meta name="description" content="3D‑utskrifter på beställning i Sverige – Carl’s 3D‑verkstad" />
         <link rel="icon" href="/logo.png" />
       </Head>
-      <div className="min-h-screen bg-gradient-to-b from-white to-gray-50">
+      <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-white to-gray-50">
         <Header />
-        <main className="px-4 sm:px-6 lg:px-8 py-10">{children}</main>
+        <main className="px-4 py-6 sm:px-6 sm:py-10 lg:px-8">{children}</main>
         <Footer />
       </div>
     </>
