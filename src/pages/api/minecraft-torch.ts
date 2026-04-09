@@ -7,7 +7,7 @@ import { notifyOrder } from "../../lib/notify";
 
 const prisma = new PrismaClient();
 const BASE_PRICE = 100;
-const PRICE_PER_TORCH = 150;
+const PRICE_PER_TORCH = 200;
 
 function ensureUploadsDir(dir = "./uploads") {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

@@ -2,7 +2,7 @@ import { useState } from "react";
 import Layout from "../components/Layout";
 
 const BASE_PRICE = 100;
-const PRICE_PER_TORCH = 150;
+const PRICE_PER_TORCH = 200;
 
 export default function MinecraftTorchOrder() {
   const [quantity, setQuantity] = useState(1);
@@ -79,7 +79,7 @@ export default function MinecraftTorchOrder() {
         </p>
         <p className="mb-2">
           Pris: <span className="font-semibold">100 kr startavgift</span> +{" "}
-          <span className="font-semibold">150 kr per fackla</span>.
+          <span className="font-semibold">200 kr per fackla</span>.
         </p>
         <p className="mb-6">I priset ingår alla 3D-utskrifter, LED-ljuskälla, 3 m sladd med strömbrytare, montering, skruvar och frakt!</p>
         <p className="mb-6 text-gray-700">
