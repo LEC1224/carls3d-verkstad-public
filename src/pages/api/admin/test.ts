@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 import { nanoid } from "nanoid";
 import { notifyOrder } from "../../../lib/notify";
+import { requireAdmin } from "../../../lib/adminAuth";
 
 const prisma = new PrismaClient();
 
@@ -15,6 +16,8 @@ function makeOrderNumber(id: number, createdAt: Date, name: string): string {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!requireAdmin(req, res)) return;
+
   try {
     // --- Create a minimal test order in DB (matching your current Order model) ---
     const tempOrderNumber = `TMP-${Date.now()}-${nanoid(6)}`;

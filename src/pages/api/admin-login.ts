@@ -1,9 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import crypto from "crypto";
-
-function expectedCookieValue(secret: string) {
-  return crypto.createHmac("sha256", secret).update("admin-ok").digest("base64url");
-}
+import { expectedAdminCookieValue, isSafeAdminRedirect } from "../../lib/adminAuth";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Endast POST" });
@@ -20,7 +16,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(401).json({ error: "Fel lösenord" });
   }
 
-  const cookieVal = expectedCookieValue(ADMIN_SECRET);
+  const cookieVal = expectedAdminCookieValue(ADMIN_SECRET);
 
   // Set secure cookie
   res.setHeader("Set-Cookie", [
@@ -29,6 +25,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     }`,
   ]);
 
-  const next = typeof req.query.next === "string" ? req.query.next : "/admin";
+  const next = isSafeAdminRedirect(req.query.next) ? req.query.next : "/admin";
   return res.status(200).json({ ok: true, redirect: next });
 }

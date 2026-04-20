@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import type { ColorOption } from "../lib/colors";
 import { ALL_COLORS } from "../lib/colors";
@@ -22,6 +23,7 @@ type OrderDTO = {
 type InventoryRow = { id: number; material: string; color: string; available: boolean };
 
 export default function Admin() {
+  const router = useRouter();
   const [orders, setOrders] = useState<OrderDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
@@ -29,9 +31,25 @@ export default function Admin() {
 
   async function load() {
     setLoading(true);
-    const [oRes, iRes] = await Promise.all([fetch("/api/orders"), fetch("/api/admin/inventory")]);
-    const o = await oRes.json(); const i = await iRes.json();
-    setOrders(o); setInventory(i); setLoading(false);
+    try {
+      const [oRes, iRes] = await Promise.all([fetch("/api/orders"), fetch("/api/admin/inventory")]);
+
+      if (oRes.status === 401 || iRes.status === 401) {
+        router.replace(`/admin-login?next=${encodeURIComponent("/admin")}`);
+        return;
+      }
+
+      if (!oRes.ok || !iRes.ok) {
+        throw new Error("Kunde inte hämta admin-data.");
+      }
+
+      const o = await oRes.json();
+      const i = await iRes.json();
+      setOrders(Array.isArray(o) ? o : []);
+      setInventory(Array.isArray(i) ? i : []);
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => { load(); }, []);
 

@@ -1,10 +1,13 @@
 // src/pages/api/orders.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
+import { requireAdmin } from "../../lib/adminAuth";
 
 const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!requireAdmin(req, res)) return;
+
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Endast GET stöds." });
   }

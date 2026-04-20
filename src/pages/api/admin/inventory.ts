@@ -1,10 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 import { ALL_COLORS } from "../../../lib/colors";
+import { requireAdmin } from "../../../lib/adminAuth";
 
 const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!requireAdmin(req, res)) return;
+
   if (req.method === "GET") {
     // list whole inventory (grouped by material)
     const rows = await prisma.inventory.findMany();
