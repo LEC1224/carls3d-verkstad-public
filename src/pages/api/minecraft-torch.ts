@@ -4,6 +4,8 @@ import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
 import { notifyOrder } from "../../lib/notify";
+import { applyFixedCoupon } from "../../lib/coupons";
+import { requireValidCoupon } from "../../lib/couponServer";
 
 const prisma = new PrismaClient();
 const BASE_PRICE = 100;
@@ -34,6 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       city = "",
       country = "Sverige",
       phone = "",
+      couponCode = "",
     } = req.body ?? {};
 
     const cleanName = String(name).trim();
@@ -54,7 +57,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Ange minst 1 fackla." });
     }
 
-    const price = BASE_PRICE + cleanQuantity * PRICE_PER_TORCH;
+    const coupon = await requireValidCoupon(prisma, couponCode);
+    const originalPrice = BASE_PRICE + cleanQuantity * PRICE_PER_TORCH;
+    const discounted = applyFixedCoupon(originalPrice, coupon, { startFee: BASE_PRICE, allowStartFeeRemoval: true });
+    const price = discounted.price;
     const tempOrderNumber = `TMP-${Date.now()}-${nanoid(6)}`;
 
     const created = await prisma.order.create({
@@ -64,6 +70,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         email: cleanEmail,
         type: "minecraft-torch",
         price,
+        discount: discounted.discount,
+        couponCode: discounted.coupon?.code || null,
         status: "Ny",
         addressLine1: cleanAddressLine1,
         addressLine2: cleanAddressLine2,
@@ -118,6 +126,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lines.push("");
       lines.push(`Startavgift: ${BASE_PRICE} kr`);
       lines.push(`Styckpris: ${PRICE_PER_TORCH} kr`);
+      if (discounted.coupon) {
+        lines.push(`Rabattkod: ${discounted.coupon.code}`);
+        lines.push(`Rabatt: -${discounted.discount} kr`);
+        lines.push(`Ordinarie total: ${originalPrice} kr`);
+      }
       lines.push(`Totalt: ${price} kr`);
       fs.writeFileSync(path.join("./uploads", `${orderNumber}.txt`), lines.join("\n"), "utf8");
     } catch (e) {
@@ -127,8 +140,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ success: true, id: order.id, orderNumber, price });
   } catch (err: any) {
     console.error("API /minecraft-torch error:", err);
-    return res.status(500).json({
-      error: "Något gick fel vid beställning. Mejla gärna carl.1224@outlook.com så hjälper vi dig.",
+    return res.status(err?.statusCode || 500).json({
+      error: err?.statusCode
+        ? err.message
+        : "Något gick fel vid beställning. Mejla gärna carl.1224@outlook.com så hjälper vi dig.",
       details: process.env.NODE_ENV === "development" ? String(err?.message || err) : undefined,
     });
   }

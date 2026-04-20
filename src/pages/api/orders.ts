@@ -27,6 +27,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       type: o.type,
       // material/color removed from Order header in schema; we no longer expose them here
       price: o.price,
+      discount: o.discount,
+      couponCode: o.couponCode,
       status: o.status,
 
       // shipping/contact

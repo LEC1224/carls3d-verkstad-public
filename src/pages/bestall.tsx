@@ -12,6 +12,8 @@ type Breakdown = {
     baseFee: number;
     shipping: number;
     total: number;
+    totalBeforeDiscount?: number;
+    coupon?: { code: string; discount: number };
     items: Array<{
       index: number;
       name: string;
@@ -54,6 +56,7 @@ export default function Home() {
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
   const [busyQuote, setBusyQuote] = useState(false);
   const [busyOrder, setBusyOrder] = useState(false);
+  const [couponCode, setCouponCode] = useState("");
 
   // customer
   const [name, setName] = useState("");
@@ -160,6 +163,7 @@ export default function Home() {
           }))
         )
       );
+      form.append("couponCode", couponCode);
       const res = await fetch("/api/quote", { method: "POST", body: form });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -192,6 +196,7 @@ export default function Home() {
       form.append("city", city);
       form.append("country", country);
       form.append("phone", phone);
+      form.append("couponCode", couponCode);
       for (const it of items) form.append("files", it.file);
       form.append(
         "itemsMeta",
@@ -224,6 +229,7 @@ export default function Home() {
       setCity("");
       setCountry("Sverige");
       setPhone("");
+      setCouponCode("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } finally {
       setBusyOrder(false);
@@ -449,7 +455,30 @@ export default function Home() {
           </div>
 
           {/* RIGHT: Receipt */}
-          <aside className="rounded-2xl border bg-white p-6 shadow-sm">
+          <aside className="space-y-4">
+          <div className="rounded-2xl border bg-white p-4 shadow-sm">
+            <label className="mb-1 block text-sm font-medium">Rabattkod</label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                value={couponCode}
+                onChange={(e) => {
+                  setCouponCode(e.target.value);
+                  setBreakdown(null);
+                }}
+                className="w-full rounded-xl border px-3 py-2 sm:max-w-48"
+                placeholder="Valfritt"
+              />
+              <button
+                onClick={doQuote}
+                disabled={items.length === 0 || busyQuote}
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
+              >
+                {busyQuote ? "Beräknar…" : "Använd"}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold">Kvitto</h2>
             <div className="mt-4 space-y-2 text-sm">
               <div className="flex justify-between">
@@ -500,6 +529,18 @@ export default function Home() {
                         <span>Frakt (inkl. ~{breakdown.packagingGrams} g emballage)</span>
                         <span>{breakdown.shipping} kr</span>
                     </div>
+                    {breakdown.coupon && (
+                    <>
+                    <div className="flex justify-between text-gray-600">
+                        <span>Ordinarie total</span>
+                        <span>{breakdown.totalBeforeDiscount} kr</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-700">
+                        <span>Rabatt ({breakdown.coupon.code})</span>
+                        <span>-{breakdown.coupon.discount} kr</span>
+                    </div>
+                    </>
+                    )}
                     <div className="flex justify-between font-semibold border-t pt-2">
                         <span>Totalt</span>
                         <span>{breakdown.total} kr</span>
@@ -511,6 +552,7 @@ export default function Home() {
                     Använd “Beräkna pris” ovan för att se en detaljerad kostnadsuppdelning.
                 </p>
                 )}
+          </div>
           </aside>
         </div>
       </section>

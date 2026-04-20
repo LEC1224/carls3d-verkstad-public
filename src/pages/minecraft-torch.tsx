@@ -8,6 +8,7 @@ export default function MinecraftTorchOrder() {
   const [quantity, setQuantity] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [couponCode, setCouponCode] = useState("");
 
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
@@ -42,6 +43,7 @@ export default function MinecraftTorchOrder() {
         city,
         country,
         phone,
+        couponCode,
       }),
     });
 
@@ -62,6 +64,7 @@ export default function MinecraftTorchOrder() {
     setCity("");
     setCountry("Sverige");
     setPhone("");
+    setCouponCode("");
   }
 
   return (
@@ -152,6 +155,16 @@ export default function MinecraftTorchOrder() {
               <label className="mb-1 block text-sm font-medium">Telefon (valfritt)</label>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full rounded-xl border px-3 py-2" />
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Rabattkod</label>
+            <input
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value)}
+              className="w-full max-w-xs rounded-xl border px-3 py-2"
+              placeholder="Valfritt"
+            />
           </div>
 
           <button
