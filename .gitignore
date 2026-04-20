@@ -32,6 +32,11 @@ pnpm-debug.log*
 .cache/
 .turbo/
 
+# Local database and uploaded customer/order files
+prisma/*.db
+prisma/*.db-*
+uploads/
+
 # Misc local files
 .DS_Store
 Thumbs.db
