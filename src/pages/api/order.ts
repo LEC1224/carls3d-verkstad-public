@@ -7,6 +7,8 @@ import { nanoid } from "nanoid";
 import { estimateFromFile } from "../../lib/estimation";
 import { priceCartBreakdown } from "../../lib/pricing";
 import { notifyOrder } from "../../lib/notify";
+import { applyStandardCoupon } from "../../lib/coupons";
+import { requireValidCoupon } from "../../lib/couponServer";
 
 export const config = { api: { bodyParser: false } };
 
@@ -48,6 +50,13 @@ function uniqueFileName(baseDir: string, desired: string): string {
   }
   return candidate;
 }
+function cleanupFiles(files: Array<{ filepath?: string }>) {
+  for (const f of files) {
+    if (f.filepath) {
+      try { fs.unlinkSync(f.filepath); } catch {}
+    }
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Endast POST." });
@@ -74,6 +83,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // files + meta
     const upFiles = toArray((files as any).files);
     if (upFiles.length === 0) return res.status(400).json({ error: "Ladda upp minst en STL/OBJ-fil." });
+
+    let coupon = null;
+    try {
+      coupon = await requireValidCoupon(prisma, fields.couponCode);
+    } catch (e) {
+      cleanupFiles(upFiles);
+      throw e;
+    }
 
     const meta = JSON.parse(String(fields.itemsMeta || "[]"));
     if (!Array.isArray(meta) || meta.length !== upFiles.length) {
@@ -108,7 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    const breakdown = priceCartBreakdown(
+    const breakdown = applyStandardCoupon(priceCartBreakdown(
       entries.map((e) => ({
         index: e.index,
         name: e.originalName,
@@ -118,7 +135,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         gramsEach: e.gramsEach,
       })),
       upFiles.length
-    );
+    ), coupon);
     const price = breakdown.total;
 
     // create order with temp orderNumber (required/unique), then pretty-fy
@@ -133,6 +150,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           email,
           type: "standard",
           price,
+          discount: breakdown.coupon?.discount || 0,
+          couponCode: breakdown.coupon?.code || null,
           status: "Ny",
           addressLine1,
           addressLine2,
@@ -242,6 +261,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         );
       }
       lines.push("");
+      if (breakdown.coupon) {
+        lines.push(`Rabattkod: ${breakdown.coupon.code}`);
+        lines.push(`Rabatt: -${breakdown.coupon.discount} kr`);
+        lines.push(`Ordinarie total: ${breakdown.totalBeforeDiscount} kr`);
+      }
       lines.push(`Materialkostnad: ${breakdown.materialCost} kr`);
       lines.push(`Filavgift: ${breakdown.fileFee} kr`);
       lines.push(`Frakt: ${breakdown.shipping} kr`);
@@ -255,6 +279,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ success: true, id: order.id, orderNumber, price, breakdown });
   } catch (e: any) {
     console.error("/api/order error:", e);
-    return res.status(500).json({ error: "Något gick fel vid beställning." });
+    return res.status(e?.statusCode || 500).json({ error: e?.statusCode ? e.message : "Något gick fel vid beställning." });
   }
 }

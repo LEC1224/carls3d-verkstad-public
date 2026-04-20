@@ -6,6 +6,7 @@ export default function LithophaneOrder() {
   const [images, setImages] = useState<File[]>([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [couponCode, setCouponCode] = useState("");
 
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
@@ -40,6 +41,7 @@ export default function LithophaneOrder() {
     formData.append("city", city);
     formData.append("country", country);
     formData.append("phone", phone);
+    formData.append("couponCode", couponCode);
 
     images.forEach(img => formData.append("images", img));
 
@@ -51,7 +53,7 @@ export default function LithophaneOrder() {
     }
     alert("Tack! Din beställning har skickats.");
 
-    setName(""); setEmail(""); setImages([]);
+    setName(""); setEmail(""); setImages([]); setCouponCode("");
     setAddressLine1(""); setAddressLine2(""); setPostalCode(""); setCity(""); setCountry("Sverige"); setPhone("");
     if (imgInputRef.current) imgInputRef.current.value = "";
   }
@@ -66,7 +68,8 @@ export default function LithophaneOrder() {
           className="rounded-xl shadow max-w-full"
         />
         <p className="mb-2">Ladda upp 4 bilder. Om de inte är kvadratiska beskärs de av oss.</p>
-        <p className="mb-6">Fast pris: <span className="font-semibold">500 kr</span> (vit PLA, inkl. LED och strömbrytare).</p>
+        <p className="mb-6">Fast pris: <span className="font-semibold">500 kr</span>.</p>
+        <p className="mb-6">I priset ingår kuben i vit PLA, LED-ljuskälla, 3,5 m sladd med strömbrytare och frakt.</p>
 
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -111,6 +114,11 @@ export default function LithophaneOrder() {
             <label className="block mb-1 text-sm font-medium">Bilder (exakt 4)</label>
             <input ref={imgInputRef} type="file" accept="image/*" multiple onChange={handleFiles}
                    className="w-full rounded-xl border bg-white px-3 py-2 cursor-pointer" />
+          </div>
+
+          <div>
+            <label className="block mb-1 text-sm font-medium">Rabattkod</label>
+            <input value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full max-w-xs rounded-xl border px-3 py-2" placeholder="Valfritt" />
           </div>
 
           <button onClick={submitOrder}

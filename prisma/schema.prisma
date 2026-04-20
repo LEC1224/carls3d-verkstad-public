@@ -14,6 +14,8 @@ model Order {
   email        String
   type         String
   price        Int
+  discount     Int      @default(0)
+  couponCode   String?
   status       String
 
   addressLine1 String
@@ -46,4 +48,15 @@ model Inventory {
   available Boolean @default(true)
 
   @@unique([material, color])
+}
+
+model Coupon {
+  id                  Int      @id @default(autoincrement())
+  code                String   @unique
+  overallPercent      Int      @default(0)
+  plasticPercent      Int      @default(0)
+  removeStartFee      Boolean  @default(false)
+  removeExtraFileFee  Boolean  @default(false)
+  removeShipping      Boolean  @default(false)
+  createdAt           DateTime @default(now())
 }

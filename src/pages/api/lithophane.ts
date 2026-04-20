@@ -5,6 +5,8 @@ import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
 import { notifyOrder } from "../../lib/notify";
+import { applyFixedCoupon } from "../../lib/coupons";
+import { requireValidCoupon } from "../../lib/couponServer";
 
 export const config = { api: { bodyParser: false } };
 
@@ -47,6 +49,13 @@ function uniqueFileName(baseDir: string, desired: string): string {
   }
   return candidate;
 }
+function cleanupFiles(files: Array<{ filepath?: string }>) {
+  for (const f of files) {
+    if (f.filepath) {
+      try { fs.unlinkSync(f.filepath); } catch {}
+    }
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Endast POST stöds." });
@@ -74,7 +83,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const imagesArr = toFileArray((files as any).images);
     if (imagesArr.length !== 4) return res.status(400).json({ error: "Du måste ladda upp exakt 4 bilder." });
 
-    const price = 500;
+    let coupon = null;
+    try {
+      coupon = await requireValidCoupon(prisma, fields.couponCode);
+    } catch (e) {
+      cleanupFiles(imagesArr);
+      throw e;
+    }
+
+    const fixedPrice = 500;
+    const discounted = applyFixedCoupon(fixedPrice, coupon);
+    const price = discounted.price;
 
     // Temp order number (schema requires unique)
     const tempOrderNumber = `TMP-${Date.now()}-${nanoid(6)}`;
@@ -88,6 +107,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           email,
           type: "lithophane",
           price,
+          discount: discounted.discount,
+          couponCode: discounted.coupon?.code || null,
           status: "Ny",
           addressLine1,
           addressLine2,
@@ -183,7 +204,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lines.push("Lithophane-bilder:");
       for (const f of finalFiles) lines.push(`- ${f.token}  ${f.filename}  —  PLA/vit`);
       lines.push("");
-      lines.push(`Fast pris: ${price} kr`);
+      lines.push(`Fast pris: ${fixedPrice} kr`);
+      if (discounted.coupon) {
+        lines.push(`Rabattkod: ${discounted.coupon.code}`);
+        lines.push(`Rabatt: -${discounted.discount} kr`);
+      }
+      lines.push(`Totalt: ${price} kr`);
       const txtPath = path.join(uploadsDir, `${orderNumber}.txt`);
       fs.writeFileSync(txtPath, lines.join("\n"), "utf8");
     } catch (e) {
@@ -198,9 +224,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (err: any) {
     console.error("API /lithophane error:", err);
-    return res.status(500).json({
-      error:
-        "Något gick fel vid uppladdning/beställning. Mejla gärna oss på carl.1224@outlook.com så hjälper vi dig.",
+    return res.status(err?.statusCode || 500).json({
+      error: err?.statusCode
+        ? err.message
+        : "Något gick fel vid uppladdning/beställning. Mejla gärna oss på carl.1224@outlook.com så hjälper vi dig.",
       details: process.env.NODE_ENV === "development" ? String(err?.message || err) : undefined,
     });
   }

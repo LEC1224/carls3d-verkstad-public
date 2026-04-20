@@ -4,8 +4,12 @@ import fs from "fs";
 import path from "path";
 import { estimateFromFile } from "../../lib/estimation";
 import { priceCartBreakdown } from "../../lib/pricing";
+import { PrismaClient } from "@prisma/client";
+import { applyStandardCoupon } from "../../lib/coupons";
+import { requireValidCoupon } from "../../lib/couponServer";
 
 export const config = { api: { bodyParser: false } };
+const prisma = new PrismaClient();
 const ALLOWED_3D_EXT = new Set([".stl", ".obj"]);
 const MAX_FILE_SIZE = 1000 * 1024 * 1024;
 
@@ -17,6 +21,13 @@ function parseForm(req: NextApiRequest, uploadDir: string) {
   });
 }
 function toArray<T>(v: T | T[] | undefined): T[] { if (!v) return []; return Array.isArray(v) ? v : [v]; }
+function cleanupFiles(files: Array<{ filepath?: string }>) {
+  for (const f of files) {
+    if (f.filepath) {
+      try { fs.unlinkSync(f.filepath); } catch {}
+    }
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Endast POST." });
@@ -26,6 +37,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const upFiles = toArray((files as any).files);
     if (upFiles.length === 0) return res.status(400).json({ error: "Ladda upp minst en STL/OBJ-fil." });
+
+    let coupon = null;
+    try {
+      coupon = await requireValidCoupon(prisma, fields.couponCode);
+    } catch (e) {
+      cleanupFiles(upFiles);
+      throw e;
+    }
 
     const meta = JSON.parse(String(fields.itemsMeta || "[]"));
     if (!Array.isArray(meta) || meta.length !== upFiles.length) {
@@ -51,14 +70,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    const breakdown = priceCartBreakdown(entries, upFiles.length);
+    const breakdown = applyStandardCoupon(priceCartBreakdown(entries, upFiles.length), coupon);
 
     // cleanup temp files
-    for (const f of upFiles) { try { fs.unlinkSync(f.filepath); } catch {} }
+    cleanupFiles(upFiles);
 
     return res.status(200).json({ breakdown });
   } catch (e: any) {
     console.error("/api/quote error:", e);
-    return res.status(500).json({ error: "Kunde inte beräkna offert." });
+    return res.status(e?.statusCode || 500).json({ error: e?.statusCode ? e.message : "Kunde inte beräkna offert." });
   }
 }
