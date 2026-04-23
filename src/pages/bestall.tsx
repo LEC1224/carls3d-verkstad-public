@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Layout from "../components/Layout";
 import ColorSelect from "../components/ColorSelect";
 import type { ColorOption } from "../lib/colors";
@@ -56,6 +56,7 @@ export default function Home() {
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
   const [busyQuote, setBusyQuote] = useState(false);
   const [busyOrder, setBusyOrder] = useState(false);
+  const [showSlowQuoteHint, setShowSlowQuoteHint] = useState(false);
   const [couponCode, setCouponCode] = useState("");
 
   // customer
@@ -69,6 +70,21 @@ export default function Home() {
   const [city, setCity] = useState("");
   const [country, setCountry] = useState("Sverige");
   const [phone, setPhone] = useState("");
+
+  useEffect(() => {
+    if (!busyQuote) {
+      setShowSlowQuoteHint(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setShowSlowQuoteHint(true);
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [busyQuote]);
 
   async function loadColorsFor(material: string): Promise<ColorOption[]> {
     const key = material.toUpperCase();
@@ -358,7 +374,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="mt-4">
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button
                   onClick={doQuote}
                   disabled={items.length === 0 || busyQuote}
@@ -366,6 +382,15 @@ export default function Home() {
                 >
                   {busyQuote ? "Beräknar…" : "Beräkna pris"}
                 </button>
+                {showSlowQuoteHint ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-600" aria-live="polite">
+                    <span
+                      className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"
+                      aria-hidden="true"
+                    />
+                    <span>Jobbar fortfarande! För stora filer kan det ta upp till en minut...</span>
+                  </div>
+                ) : null}
               </div>
             </div>
 
