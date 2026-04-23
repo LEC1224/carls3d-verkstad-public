@@ -33,8 +33,9 @@ function cleanupFiles(files: Array<{ filepath?: string }>) {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Endast POST." });
   try {
-    ensureDir("./uploads/tmp");
-    const { fields, files } = await parseForm(req, "./uploads/tmp");
+    const uploadDir = path.join(process.cwd(), "uploads", "tmp");
+    ensureDir(uploadDir);
+    const { fields, files } = await parseForm(req, uploadDir);
 
     const upFiles = toArray((files as any).files);
     if (upFiles.length === 0) return res.status(400).json({ error: "Ladda upp minst en STL/OBJ-fil." });

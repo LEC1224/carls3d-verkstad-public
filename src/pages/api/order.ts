@@ -63,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).json({ error: "Endast POST." });
 
   try {
-    const uploadsDir = "./uploads";
+    const uploadsDir = path.join(process.cwd(), "uploads");
     ensureDir(uploadsDir);
     const { fields, files } = await parseForm(req, uploadsDir);
 

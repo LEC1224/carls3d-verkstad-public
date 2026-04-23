@@ -35,6 +35,8 @@ const TARGET_TOTAL_CELLS = Number(process.env.QUOTE_TARGET_TOTAL_CELLS || "12000
 const DEFAULT_SHELL_FACTOR = Number(process.env.QUOTE_SHELL_FACTOR || "0.9");
 const DEFAULT_SOLID_FACTOR = Number(process.env.QUOTE_SOLID_FACTOR || "0.88");
 const LARGE_PART_RESOLUTION_FACTOR = Number(process.env.QUOTE_LARGE_PART_RESOLUTION_FACTOR || "0.85");
+const MAX_LAYER_COUNT = Number(process.env.QUOTE_MAX_LAYER_COUNT || "5000");
+const MAX_LAYER_CELLS = Number(process.env.QUOTE_MAX_LAYER_CELLS || "4000000");
 
 const DENSITY_G_CM3: Record<string, number> = {
   PLA: 1.24,
@@ -54,10 +56,6 @@ function cross(a: Point3, b: Point3): Point3 {
     y: a.z * b.x - a.x * b.z,
     z: a.x * b.y - a.y * b.x,
   };
-}
-
-function subtract(a: Point3, b: Point3): Point3 {
-  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
 }
 
 function triSignedVolume(tri: Triangle) {
@@ -331,6 +329,8 @@ function estimatePseudoSlice(mesh: MeshData, material: string): VolumeResult | n
   const depth = Math.max(mesh.bounds.maxY - mesh.bounds.minY, xyStep);
   const nx = Math.max(1, Math.ceil(width / xyStep));
   const ny = Math.max(1, Math.ceil(depth / xyStep));
+  if (layerCount > MAX_LAYER_COUNT) return null;
+  if (nx * ny > MAX_LAYER_CELLS) return null;
   const erosionSteps = Math.max(1, Math.round((DEFAULT_WALL_COUNT * DEFAULT_LINE_WIDTH_MM) / xyStep));
 
   const occupancies: Uint8Array[] = [];
@@ -396,8 +396,12 @@ function estimatePseudoSlice(mesh: MeshData, material: string): VolumeResult | n
 
 export function estimateFromFile(filePath: string, material: string): VolumeResult {
   const mesh = readMesh(filePath);
-  const pseudo = estimatePseudoSlice(mesh, material);
-  if (pseudo) return pseudo;
+  try {
+    const pseudo = estimatePseudoSlice(mesh, material);
+    if (pseudo) return pseudo;
+  } catch (error) {
+    console.error("Pseudo slicer failed, falling back to volume estimate:", error);
+  }
 
   const mat = (material || "PLA").toUpperCase();
   const density = DENSITY_G_CM3[mat] ?? DENSITY_G_CM3.PLA;
