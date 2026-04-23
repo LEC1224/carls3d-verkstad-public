@@ -183,7 +183,10 @@ export default function Home() {
       const res = await fetch("/api/quote", { method: "POST", body: form });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(j.error || "Kunde inte beräkna pris.");
+        alert(
+          j.error ||
+            "Kunde inte beräkna pris. Din beställning kan vara för anvancerad för mina automatiska skript. Skriv till carl.1224@outlook.com så löser jag ordern manuellt."
+        );
         return;
       }
       setBreakdown(j.breakdown as Breakdown);
