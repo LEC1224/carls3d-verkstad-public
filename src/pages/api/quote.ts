@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import { estimateFromFile } from "../../lib/estimation";
 import { priceCartBreakdown } from "../../lib/pricing";
+import { logPriceCalculation } from "../../lib/priceCalculationLog";
 import { PrismaClient } from "@prisma/client";
 import { applyStandardCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
@@ -67,10 +68,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         color: String(m.color || "white"),
         copies: Math.max(parseInt(String(m.copies || "1"), 10), 1),
         gramsEach: est.grams,
+        estimate: {
+          source: est.source,
+          fallbackReason: est.fallbackReason,
+          volumeMm3: est.volumeMm3,
+          layerCount: est.layerCount,
+          layerHeight: est.layerHeight,
+          xyStep: est.xyStep,
+          wallCount: est.wallCount,
+          topBottomLayers: est.topBottomLayers,
+          infillDensity: est.infillDensity,
+          shellVolumeMm3: est.shellVolumeMm3,
+          solidVolumeMm3: est.solidVolumeMm3,
+          infillVolumeMm3: est.infillVolumeMm3,
+          shellFactor: est.shellFactor,
+          solidFactor: est.solidFactor,
+        },
       });
     }
 
     const breakdown = applyStandardCoupon(priceCartBreakdown(entries, upFiles.length), coupon);
+    logPriceCalculation("quote", entries, breakdown);
 
     // cleanup temp files
     cleanupFiles(upFiles);

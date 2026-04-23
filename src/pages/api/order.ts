@@ -6,6 +6,7 @@ import path from "path";
 import { nanoid } from "nanoid";
 import { estimateFromFile } from "../../lib/estimation";
 import { priceCartBreakdown } from "../../lib/pricing";
+import { logPriceCalculation } from "../../lib/priceCalculationLog";
 import { notifyOrder } from "../../lib/notify";
 import { applyStandardCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
@@ -122,20 +123,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         color: String(m.color || "white"),
         copies,
         gramsEach: est.grams,
+        estimate: {
+          source: est.source,
+          fallbackReason: est.fallbackReason,
+          volumeMm3: est.volumeMm3,
+          layerCount: est.layerCount,
+          layerHeight: est.layerHeight,
+          xyStep: est.xyStep,
+          wallCount: est.wallCount,
+          topBottomLayers: est.topBottomLayers,
+          infillDensity: est.infillDensity,
+          shellVolumeMm3: est.shellVolumeMm3,
+          solidVolumeMm3: est.solidVolumeMm3,
+          infillVolumeMm3: est.infillVolumeMm3,
+          shellFactor: est.shellFactor,
+          solidFactor: est.solidFactor,
+        },
       });
     }
 
-    const breakdown = applyStandardCoupon(priceCartBreakdown(
-      entries.map((e) => ({
+    const pricingEntries = entries.map((e) => ({
         index: e.index,
         name: e.originalName,
         material: e.material,
         color: e.color,
         copies: e.copies,
         gramsEach: e.gramsEach,
-      })),
+        estimate: e.estimate,
+      }));
+    const breakdown = applyStandardCoupon(priceCartBreakdown(
+      pricingEntries,
       upFiles.length
     ), coupon);
+    logPriceCalculation("order", pricingEntries, breakdown);
     const price = breakdown.total;
 
     // create order with temp orderNumber (required/unique), then pretty-fy
