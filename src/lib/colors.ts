@@ -21,6 +21,8 @@ export const ALL_COLORS: ColorOption[] = [
   { value: "pearl", label: "Pärlgrå", hex: "#d3d3d3" },
   { value: "light-gray", label: "Ljusgrå", hex: "#d1d5db" },
   { value: "trans", label: "Transparent", hex: "#eeeeee" },
+  { value: "trans-brown", label: "Transparent Brun", hex: "#a16207" },
+  { value: "trans-aqua", label: "Transparent Aqua", hex: "#22d3ee" },
   { value: "natural", label: "Naturlig", hex: "#f5f5f5" },
   { value: "stone", label: "Sten", hex: "#d1d5db" },
   { value: "wood", label: "Trä", hex: "#DEB887" },
