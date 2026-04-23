@@ -177,8 +177,8 @@ export default function Home() {
   }
 
   async function submitOrder() {
-    if (!name || !email || !addressLine1 || !postalCode || !city) {
-      alert("Fyll i namn, e-post, adress, postnummer och ort.");
+    if (!name || !email || !addressLine1 || !postalCode || !city || !phone) {
+      alert("Fyll i namn, e-post, telefon, adress, postnummer och ort.");
       return;
     }
     if (items.length === 0) {
@@ -433,11 +433,12 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Telefon (valfritt)</label>
+                  <label className="mb-1 block text-sm font-medium">Telefon</label>
                   <input
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     className="w-full rounded-xl border px-3 py-2"
+                    required
                   />
                 </div>
               </div>

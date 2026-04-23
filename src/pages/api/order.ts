@@ -75,10 +75,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const postalCode = String(fields.postalCode || "").trim();
     const city = String(fields.city || "").trim();
     const country = String(fields.country || "Sverige").trim();
-    const phone = String(fields.phone || "").trim() || null;
+    const phone = String(fields.phone || "").trim();
 
-    if (!name || !email || !addressLine1 || !postalCode || !city) {
-      return res.status(400).json({ error: "Fyll i namn, e-post, adress, postnummer och ort." });
+    if (!name || !email || !phone || !addressLine1 || !postalCode || !city) {
+      return res.status(400).json({ error: "Fyll i namn, e-post, telefon, adress, postnummer och ort." });
     }
 
     // files + meta
