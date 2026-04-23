@@ -34,10 +34,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).json({ error: "Endast POST." });
   try {
     const uploadDir = path.join(process.cwd(), "uploads", "tmp");
+    console.info("[quote] start", JSON.stringify({ cwd: process.cwd(), uploadDir }));
     ensureDir(uploadDir);
     const { fields, files } = await parseForm(req, uploadDir);
 
     const upFiles = toArray((files as any).files);
+    console.info("[quote] parsed", JSON.stringify({ fileCount: upFiles.length }));
     if (upFiles.length === 0) return res.status(400).json({ error: "Ladda upp minst en STL/OBJ-fil." });
 
     let coupon = null;
@@ -61,7 +63,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!ALLOWED_3D_EXT.has(ext)) return res.status(400).json({ error: `Endast STL/OBJ: ${f.originalFilename}` });
       if (f.size > MAX_FILE_SIZE) return res.status(400).json({ error: `Filen är för stor: ${f.originalFilename}` });
 
+      const started = Date.now();
       const est = estimateFromFile(f.filepath, m.material || "PLA");
+      console.info("[quote] estimated", JSON.stringify({
+        name: f.originalFilename || path.basename(f.filepath),
+        size: f.size,
+        ms: Date.now() - started,
+        source: est.source,
+        fallbackReason: est.fallbackReason || null,
+      }));
       entries.push({
         index: i,
         name: f.originalFilename || path.basename(f.filepath),
@@ -97,6 +107,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ breakdown });
   } catch (e: any) {
     console.error("/api/quote error:", e);
-    return res.status(e?.statusCode || 500).json({ error: e?.statusCode ? e.message : "Kunde inte beräkna offert." });
+    return res.status(e?.statusCode || 500).json({ error: e?.statusCode ? e.message : "Kunde inte beräkna offert.", detail: e?.message || null });
   }
 }

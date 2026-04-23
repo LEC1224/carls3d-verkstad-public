@@ -35,8 +35,9 @@ const TARGET_TOTAL_CELLS = Number(process.env.QUOTE_TARGET_TOTAL_CELLS || "12000
 const DEFAULT_SHELL_FACTOR = Number(process.env.QUOTE_SHELL_FACTOR || "0.9");
 const DEFAULT_SOLID_FACTOR = Number(process.env.QUOTE_SOLID_FACTOR || "0.88");
 const LARGE_PART_RESOLUTION_FACTOR = Number(process.env.QUOTE_LARGE_PART_RESOLUTION_FACTOR || "0.85");
-const MAX_LAYER_COUNT = Number(process.env.QUOTE_MAX_LAYER_COUNT || "5000");
-const MAX_LAYER_CELLS = Number(process.env.QUOTE_MAX_LAYER_CELLS || "4000000");
+const MAX_LAYER_COUNT = Number(process.env.QUOTE_MAX_LAYER_COUNT || "2500");
+const MAX_LAYER_CELLS = Number(process.env.QUOTE_MAX_LAYER_CELLS || "1000000");
+const MAX_TRIANGLES = Number(process.env.QUOTE_MAX_TRIANGLES || "300000");
 
 const DENSITY_G_CM3: Record<string, number> = {
   PLA: 1.24,
@@ -318,8 +319,24 @@ function erodeMask(src: Uint8Array, nx: number, ny: number, iterations: number) 
   return current;
 }
 
+function estimateVolumeFallback(mesh: MeshData, material: string, fallbackReason: string): VolumeResult {
+  const mat = (material || "PLA").toUpperCase();
+  const density = DENSITY_G_CM3[mat] ?? DENSITY_G_CM3.PLA;
+  const gramsSolid = (mesh.volumeMm3 / 1000.0) * density;
+  const grams = Math.max(gramsSolid * DEFAULT_FILL_FACTOR, MIN_GRAMS_PER_FILE);
+
+  return {
+    volumeMm3: mesh.volumeMm3,
+    grams,
+    source: "volume",
+    fallbackReason,
+    infillDensity: DEFAULT_FILL_FACTOR,
+  };
+}
+
 function estimatePseudoSlice(mesh: MeshData, material: string): VolumeResult | null {
   if (mesh.triangles.length === 0) return null;
+  if (mesh.triangles.length > MAX_TRIANGLES) return estimateVolumeFallback(mesh, material, "pseudo_skipped_too_many_triangles");
   const height = mesh.bounds.maxZ - mesh.bounds.minZ;
   if (height <= 0) return null;
 
@@ -329,8 +346,8 @@ function estimatePseudoSlice(mesh: MeshData, material: string): VolumeResult | n
   const depth = Math.max(mesh.bounds.maxY - mesh.bounds.minY, xyStep);
   const nx = Math.max(1, Math.ceil(width / xyStep));
   const ny = Math.max(1, Math.ceil(depth / xyStep));
-  if (layerCount > MAX_LAYER_COUNT) return null;
-  if (nx * ny > MAX_LAYER_CELLS) return null;
+  if (layerCount > MAX_LAYER_COUNT) return estimateVolumeFallback(mesh, material, "pseudo_skipped_too_many_layers");
+  if (nx * ny > MAX_LAYER_CELLS) return estimateVolumeFallback(mesh, material, "pseudo_skipped_grid_too_dense");
   const erosionSteps = Math.max(1, Math.round((DEFAULT_WALL_COUNT * DEFAULT_LINE_WIDTH_MM) / xyStep));
 
   const occupancies: Uint8Array[] = [];
@@ -402,17 +419,5 @@ export function estimateFromFile(filePath: string, material: string): VolumeResu
   } catch (error) {
     console.error("Pseudo slicer failed, falling back to volume estimate:", error);
   }
-
-  const mat = (material || "PLA").toUpperCase();
-  const density = DENSITY_G_CM3[mat] ?? DENSITY_G_CM3.PLA;
-  const gramsSolid = (mesh.volumeMm3 / 1000.0) * density;
-  const grams = Math.max(gramsSolid * DEFAULT_FILL_FACTOR, MIN_GRAMS_PER_FILE);
-
-  return {
-    volumeMm3: mesh.volumeMm3,
-    grams,
-    source: "volume",
-    fallbackReason: "pseudo_slicer_failed",
-    infillDensity: DEFAULT_FILL_FACTOR,
-  };
+  return estimateVolumeFallback(mesh, material, "pseudo_slicer_failed");
 }
