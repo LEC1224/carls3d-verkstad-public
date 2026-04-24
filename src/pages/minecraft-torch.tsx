@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 
 const BASE_PRICE = 100;
@@ -9,6 +9,9 @@ export default function MinecraftTorchOrder() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [couponCode, setCouponCode] = useState("");
+  const [displayedPrice, setDisplayedPrice] = useState(BASE_PRICE + PRICE_PER_TORCH);
+  const [couponMessage, setCouponMessage] = useState("");
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
 
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
@@ -18,6 +21,50 @@ export default function MinecraftTorchOrder() {
   const [phone, setPhone] = useState("");
 
   const totalPrice = BASE_PRICE + quantity * PRICE_PER_TORCH;
+
+  useEffect(() => {
+    setDisplayedPrice(totalPrice);
+    setCouponMessage("");
+  }, [totalPrice]);
+
+  async function applyCoupon() {
+    if (!couponCode.trim()) {
+      setDisplayedPrice(totalPrice);
+      setCouponMessage("Fyll i en rabattkod först.");
+      return;
+    }
+
+    setIsApplyingCoupon(true);
+    setCouponMessage("");
+
+    try {
+      const res = await fetch("/api/fixed-coupon-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          price: totalPrice,
+          couponCode,
+          startFee: BASE_PRICE,
+          allowStartFeeRemoval: true,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDisplayedPrice(totalPrice);
+        setCouponMessage(data.error || "Kunde inte tillämpa rabattkoden.");
+        return;
+      }
+
+      setDisplayedPrice(data.price);
+      setCouponMessage(`Rabattkod ${data.coupon?.code || couponCode.trim()} tillämpad.`);
+    } catch {
+      setDisplayedPrice(totalPrice);
+      setCouponMessage("Kunde inte tillämpa rabattkoden.");
+    } finally {
+      setIsApplyingCoupon(false);
+    }
+  }
 
   async function submitOrder() {
     if (!name || !email || !addressLine1 || !postalCode || !city) {
@@ -86,7 +133,7 @@ export default function MinecraftTorchOrder() {
         </p>
         <p className="mb-6">I priset ingår alla 3D-utskrifter, LED-ljuskälla, 3 m sladd med strömbrytare, montering, skruvar och frakt!</p>
         <p className="mb-6 text-gray-700">
-          Totalt just nu: <span className="font-semibold">{totalPrice} kr</span> för {quantity} st.
+          Totalt just nu: <span className="font-semibold">{displayedPrice} kr</span> för {quantity} st.
         </p>
 
         <div className="space-y-6">
@@ -159,12 +206,27 @@ export default function MinecraftTorchOrder() {
 
           <div>
             <label className="mb-1 block text-sm font-medium">Rabattkod</label>
-            <input
-              value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value)}
-              className="w-full max-w-xs rounded-xl border px-3 py-2"
-              placeholder="Valfritt"
-            />
+            <div className="flex max-w-md gap-2">
+              <input
+                value={couponCode}
+                onChange={(e) => {
+                  setCouponCode(e.target.value);
+                  setDisplayedPrice(totalPrice);
+                  setCouponMessage("");
+                }}
+                className="w-full rounded-xl border px-3 py-2"
+                placeholder="Valfritt"
+              />
+              <button
+                type="button"
+                onClick={applyCoupon}
+                disabled={isApplyingCoupon}
+                className="rounded-xl border border-emerald-600 px-4 py-2 text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Tillämpa
+              </button>
+            </div>
+            {couponMessage ? <p className="mt-2 text-sm text-gray-600">{couponMessage}</p> : null}
           </div>
 
           <button

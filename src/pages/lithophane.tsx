@@ -1,12 +1,15 @@
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import Layout from "../components/Layout";
-import Image from "next/image";
 
 export default function LithophaneOrder() {
+  const basePrice = 500;
   const [images, setImages] = useState<File[]>([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [couponCode, setCouponCode] = useState("");
+  const [displayedPrice, setDisplayedPrice] = useState(basePrice);
+  const [couponMessage, setCouponMessage] = useState("");
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
 
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
@@ -20,6 +23,43 @@ export default function LithophaneOrder() {
   function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
     setImages(Array.from(e.target.files));
+  }
+
+  async function applyCoupon() {
+    if (!couponCode.trim()) {
+      setDisplayedPrice(basePrice);
+      setCouponMessage("Fyll i en rabattkod först.");
+      return;
+    }
+
+    setIsApplyingCoupon(true);
+    setCouponMessage("");
+
+    try {
+      const res = await fetch("/api/fixed-coupon-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          price: basePrice,
+          couponCode,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDisplayedPrice(basePrice);
+        setCouponMessage(data.error || "Kunde inte tillämpa rabattkoden.");
+        return;
+      }
+
+      setDisplayedPrice(data.price);
+      setCouponMessage(`Rabattkod ${data.coupon?.code || couponCode.trim()} tillämpad.`);
+    } catch {
+      setDisplayedPrice(basePrice);
+      setCouponMessage("Kunde inte tillämpa rabattkoden.");
+    } finally {
+      setIsApplyingCoupon(false);
+    }
   }
 
   async function submitOrder() {
@@ -70,6 +110,7 @@ export default function LithophaneOrder() {
         <p className="mb-2">Ladda upp 4 bilder. Om de inte är kvadratiska beskärs de av oss.</p>
         <p className="mb-6">Fast pris: <span className="font-semibold">500 kr</span>.</p>
         <p className="mb-6">I priset ingår kuben i vit PLA, LED-ljuskälla, 3,5 m sladd med strömbrytare och frakt.</p>
+        <p className="mb-6 text-gray-700">Totalt just nu: <span className="font-semibold">{displayedPrice} kr</span>.</p>
 
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -118,7 +159,27 @@ export default function LithophaneOrder() {
 
           <div>
             <label className="block mb-1 text-sm font-medium">Rabattkod</label>
-            <input value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full max-w-xs rounded-xl border px-3 py-2" placeholder="Valfritt" />
+            <div className="flex max-w-md gap-2">
+              <input
+                value={couponCode}
+                onChange={e => {
+                  setCouponCode(e.target.value);
+                  setDisplayedPrice(basePrice);
+                  setCouponMessage("");
+                }}
+                className="w-full rounded-xl border px-3 py-2"
+                placeholder="Valfritt"
+              />
+              <button
+                type="button"
+                onClick={applyCoupon}
+                disabled={isApplyingCoupon}
+                className="rounded-xl border border-emerald-600 px-4 py-2 text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Tillämpa
+              </button>
+            </div>
+            {couponMessage ? <p className="mt-2 text-sm text-gray-600">{couponMessage}</p> : null}
           </div>
 
           <button onClick={submitOrder}
