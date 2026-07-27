@@ -6,6 +6,11 @@ import { nanoid } from "nanoid";
 import { notifyOrder } from "../../lib/notify";
 import { applyFixedCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
+import {
+  MINECRAFT_TORCH_SHIPPING_COST,
+  normalizeDeliveryMethod,
+  priceBeforeCouponForDelivery,
+} from "../../lib/delivery";
 
 const prisma = new PrismaClient();
 const BASE_PRICE = 100;
@@ -37,20 +42,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       country = "Sverige",
       phone = "",
       couponCode = "",
+      deliveryMethod: requestedDeliveryMethod = "shipping",
     } = req.body ?? {};
 
     const cleanName = String(name).trim();
     const cleanEmail = String(email).trim();
-    const cleanAddressLine1 = String(addressLine1).trim();
-    const cleanAddressLine2 = String(addressLine2).trim() || null;
-    const cleanPostalCode = String(postalCode).trim();
-    const cleanCity = String(city).trim();
-    const cleanCountry = String(country).trim() || "Sverige";
+    const deliveryMethod = normalizeDeliveryMethod(requestedDeliveryMethod);
+    const cleanAddressLine1 = deliveryMethod === "pickup" ? "" : String(addressLine1).trim();
+    const cleanAddressLine2 =
+      deliveryMethod === "pickup" ? null : String(addressLine2).trim() || null;
+    const cleanPostalCode = deliveryMethod === "pickup" ? "" : String(postalCode).trim();
+    const cleanCity = deliveryMethod === "pickup" ? "" : String(city).trim();
+    const cleanCountry =
+      deliveryMethod === "pickup" ? "" : String(country).trim() || "Sverige";
     const cleanPhone = String(phone).trim() || null;
     const cleanQuantity = Math.max(1, parseInt(String(quantity || "1"), 10));
 
-    if (!cleanName || !cleanEmail || !cleanAddressLine1 || !cleanPostalCode || !cleanCity) {
-      return res.status(400).json({ error: "Fyll i namn, e-post, adress, postnummer och ort." });
+    if (!cleanName || !cleanEmail || !cleanPhone) {
+      return res.status(400).json({ error: "Fyll i namn, e-post och telefon." });
+    }
+    if (deliveryMethod === "shipping" && (!cleanAddressLine1 || !cleanPostalCode || !cleanCity)) {
+      return res.status(400).json({ error: "Fyll i adress, postnummer och ort för leveransen." });
     }
 
     if (!Number.isInteger(cleanQuantity) || cleanQuantity < 1) {
@@ -59,7 +71,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const coupon = await requireValidCoupon(prisma, couponCode);
     const originalPrice = BASE_PRICE + cleanQuantity * PRICE_PER_TORCH;
-    const discounted = applyFixedCoupon(originalPrice, coupon, { startFee: BASE_PRICE, allowStartFeeRemoval: true });
+    const priceBeforeCoupon = priceBeforeCouponForDelivery(
+      originalPrice,
+      MINECRAFT_TORCH_SHIPPING_COST,
+      deliveryMethod
+    );
+    const discounted = applyFixedCoupon(priceBeforeCoupon, coupon, { startFee: BASE_PRICE, allowStartFeeRemoval: true });
     const price = discounted.price;
     const tempOrderNumber = `TMP-${Date.now()}-${nanoid(6)}`;
 
@@ -73,6 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         discount: discounted.discount,
         couponCode: discounted.coupon?.code || null,
         status: "Ny",
+        deliveryMethod,
         addressLine1: cleanAddressLine1,
         addressLine2: cleanAddressLine2,
         postalCode: cleanPostalCode,
@@ -92,6 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email: cleanEmail,
       type: "minecraft-torch",
       price,
+      deliveryMethod,
       addressLine1: cleanAddressLine1,
       addressLine2: cleanAddressLine2,
       postalCode: cleanPostalCode,
@@ -116,9 +135,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lines.push(`Order: ${orderNumber}`);
       lines.push(`Namn: ${cleanName}`);
       lines.push(`E-post: ${cleanEmail}`);
-      lines.push(
-        `Adress: ${cleanAddressLine1}${cleanAddressLine2 ? ", " + cleanAddressLine2 : ""}, ${cleanPostalCode} ${cleanCity}, ${cleanCountry}`
-      );
+      lines.push(`Leveranssätt: ${deliveryMethod === "pickup" ? "Hämtas hos mig" : "PostNord"}`);
+      if (deliveryMethod === "shipping") {
+        lines.push(
+          `Adress: ${cleanAddressLine1}${cleanAddressLine2 ? ", " + cleanAddressLine2 : ""}, ${cleanPostalCode} ${cleanCity}, ${cleanCountry}`
+        );
+      }
       lines.push(`Telefon: ${cleanPhone ?? "-"}`);
       lines.push("");
       lines.push("Produkt:");
@@ -126,6 +148,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lines.push("");
       lines.push(`Startavgift: ${BASE_PRICE} kr`);
       lines.push(`Styckpris: ${PRICE_PER_TORCH} kr`);
+      lines.push(
+        deliveryMethod === "pickup"
+          ? `Fraktavdrag: -${MINECRAFT_TORCH_SHIPPING_COST} kr`
+          : `Frakt (ingår i priset): ${MINECRAFT_TORCH_SHIPPING_COST} kr`
+      );
       if (discounted.coupon) {
         lines.push(`Rabattkod: ${discounted.coupon.code}`);
         lines.push(`Rabatt: -${discounted.discount} kr`);
@@ -143,7 +170,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(err?.statusCode || 500).json({
       error: err?.statusCode
         ? err.message
-        : "Något gick fel vid beställning. Mejla gärna carl.1224@outlook.com så hjälper vi dig.",
+        : "Något gick fel vid beställning. Mejla gärna info@carls3d.se så hjälper vi dig.",
       details: process.env.NODE_ENV === "development" ? String(err?.message || err) : undefined,
     });
   }

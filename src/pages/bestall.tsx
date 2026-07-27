@@ -3,6 +3,8 @@ import Layout from "../components/Layout";
 import ColorSelect from "../components/ColorSelect";
 import type { ColorOption } from "../lib/colors";
 import MaterialsInfo from "../components/MaterialsInfo";
+import DeliveryMethodSelector from "../components/DeliveryMethodSelector";
+import type { DeliveryMethod } from "../lib/delivery";
 
 type Breakdown = {
     grams: number;
@@ -62,6 +64,7 @@ export default function Home() {
   // customer
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>("shipping");
 
   // shipping
   const [addressLine1, setAddressLine1] = useState("");
@@ -180,12 +183,13 @@ export default function Home() {
         )
       );
       form.append("couponCode", couponCode);
+      form.append("deliveryMethod", deliveryMethod);
       const res = await fetch("/api/quote", { method: "POST", body: form });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
         alert(
           j.error ||
-            "Kunde inte beräkna pris. Din beställning kan vara för anvancerad för mina automatiska skript. Skriv till carl.1224@outlook.com så löser jag ordern manuellt."
+            "Kunde inte beräkna pris. Din beställning kan vara för anvancerad för mina automatiska skript. Skriv till info@carls3d.se så löser jag ordern manuellt."
         );
         return;
       }
@@ -196,8 +200,12 @@ export default function Home() {
   }
 
   async function submitOrder() {
-    if (!name || !email || !addressLine1 || !postalCode || !city || !phone) {
-      alert("Fyll i namn, e-post, telefon, adress, postnummer och ort.");
+    if (!name || !email || !phone) {
+      alert("Fyll i namn, e-post och telefon.");
+      return;
+    }
+    if (deliveryMethod === "shipping" && (!addressLine1 || !postalCode || !city)) {
+      alert("Fyll i adress, postnummer och ort för leveransen.");
       return;
     }
     if (items.length === 0) {
@@ -209,6 +217,7 @@ export default function Home() {
       const form = new FormData();
       form.append("name", name);
       form.append("email", email);
+      form.append("deliveryMethod", deliveryMethod);
       form.append("addressLine1", addressLine1);
       form.append("addressLine2", addressLine2);
       form.append("postalCode", postalCode);
@@ -242,6 +251,7 @@ export default function Home() {
       setBreakdown(null);
       setName("");
       setEmail("");
+      setDeliveryMethod("shipping");
       setAddressLine1("");
       setAddressLine2("");
       setPostalCode("");
@@ -399,8 +409,15 @@ export default function Home() {
 
             {/* Customer + shipping + submit */}
             <div className="rounded-2xl border bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold mb-3">Kund- & leveransuppgifter</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <h2 className="text-lg font-semibold mb-3">Kontakt & leverans</h2>
+              <DeliveryMethodSelector
+                value={deliveryMethod}
+                onChange={(value) => {
+                  setDeliveryMethod(value);
+                  setBreakdown(null);
+                }}
+              />
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium">Namn</label>
                   <input
@@ -418,6 +435,18 @@ export default function Home() {
                     className="w-full rounded-xl border px-3 py-2"
                   />
                 </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Telefon</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full rounded-xl border px-3 py-2"
+                    required
+                  />
+                </div>
+                {deliveryMethod === "shipping" ? (
+                <>
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm font-medium">Adress</label>
                   <input
@@ -460,15 +489,12 @@ export default function Home() {
                     className="w-full rounded-xl border px-3 py-2"
                   />
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Telefon</label>
-                  <input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full rounded-xl border px-3 py-2"
-                    required
-                  />
-                </div>
+                </>
+                ) : (
+                  <p className="text-sm text-gray-600 sm:col-span-2">
+                    Du behöver inte fylla i någon adress. Jag kontaktar dig när beställningen är klar att hämta.
+                  </p>
+                )}
               </div>
 
               <div className="mt-6 flex items-center gap-3">
@@ -555,7 +581,11 @@ export default function Home() {
                         <span>{breakdown.fileFee} kr</span>
                     </div>
                     <div className="flex justify-between">
-                        <span>Frakt (inkl. ~{breakdown.packagingGrams} g emballage)</span>
+                        <span>
+                          {deliveryMethod === "pickup"
+                            ? "Avhämtning"
+                            : `Frakt (inkl. ~${breakdown.packagingGrams} g emballage)`}
+                        </span>
                         <span>{breakdown.shipping} kr</span>
                     </div>
                     {breakdown.coupon && (

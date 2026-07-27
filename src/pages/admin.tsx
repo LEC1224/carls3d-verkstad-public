@@ -17,6 +17,7 @@ type OrderDTO = {
   discount?: number;
   couponCode?: string | null;
   status: string;
+  deliveryMethod?: "shipping" | "pickup";
   files: string[]; // if your /api/orders returns string[], else adjust
   addressLine1?: string; addressLine2?: string | null;
   postalCode?: string; city?: string; country?: string; phone?: string | null;
@@ -275,7 +276,7 @@ export default function Admin() {
                     <th className="p-2 border">Pris</th>
                     <th className="p-2 border">Rabatt</th>
                     <th className="p-2 border">Status</th>
-                    <th className="p-2 border">Adress</th>
+                    <th className="p-2 border">Leverans</th>
                     <th className="p-2 border">Åtgärd</th>
                   </tr>
                 </thead>
@@ -305,9 +306,18 @@ export default function Admin() {
                     </td>
                     <td className="p-2 border">{o.status}</td>
                     <td className="p-2 border">
-                      <div>{o.addressLine1}{o.addressLine2 ? `, ${o.addressLine2}` : ""}</div>
-                      <div>{o.postalCode} {o.city}</div>
-                      <div>{o.country}{o.phone ? `, Tel: ${o.phone}` : ""}</div>
+                      {o.deliveryMethod === "pickup" ? (
+                        <>
+                          <div className="font-medium text-emerald-700">Hämtas</div>
+                          <div>{o.phone ? `Tel: ${o.phone}` : "—"}</div>
+                        </>
+                      ) : (
+                        <>
+                          <div>{o.addressLine1}{o.addressLine2 ? `, ${o.addressLine2}` : ""}</div>
+                          <div>{o.postalCode} {o.city}</div>
+                          <div>{o.country}{o.phone ? `, Tel: ${o.phone}` : ""}</div>
+                        </>
+                      )}
                     </td>
                     <td className="p-2 border">
                       <div className="flex gap-2">

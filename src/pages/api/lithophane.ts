@@ -7,6 +7,11 @@ import { nanoid } from "nanoid";
 import { notifyOrder } from "../../lib/notify";
 import { applyFixedCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
+import {
+  LITHOPHANE_SHIPPING_COST,
+  normalizeDeliveryMethod,
+  priceBeforeCouponForDelivery,
+} from "../../lib/delivery";
 
 export const config = { api: { bodyParser: false } };
 
@@ -67,17 +72,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const name = String(fields.name || "").trim();
     const email = String(fields.email || "").trim();
+    const deliveryMethod = normalizeDeliveryMethod(fields.deliveryMethod);
 
     // Leveransuppgifter
-    const addressLine1 = String(fields.addressLine1 || "").trim();
-    const addressLine2 = String(fields.addressLine2 || "").trim() || null;
-    const postalCode = String(fields.postalCode || "").trim();
-    const city = String(fields.city || "").trim();
-    const country = String(fields.country || "Sverige").trim();
+    const addressLine1 = deliveryMethod === "pickup" ? "" : String(fields.addressLine1 || "").trim();
+    const addressLine2 =
+      deliveryMethod === "pickup" ? null : String(fields.addressLine2 || "").trim() || null;
+    const postalCode = deliveryMethod === "pickup" ? "" : String(fields.postalCode || "").trim();
+    const city = deliveryMethod === "pickup" ? "" : String(fields.city || "").trim();
+    const country =
+      deliveryMethod === "pickup" ? "" : String(fields.country || "Sverige").trim();
     const phone = String(fields.phone || "").trim() || null;
 
-    if (!name || !email || !addressLine1 || !postalCode || !city) {
-      return res.status(400).json({ error: "Fyll i namn, e-post, adress, postnummer och ort." });
+    if (!name || !email || !phone) {
+      return res.status(400).json({ error: "Fyll i namn, e-post och telefon." });
+    }
+    if (deliveryMethod === "shipping" && (!addressLine1 || !postalCode || !city)) {
+      return res.status(400).json({ error: "Fyll i adress, postnummer och ort för leveransen." });
     }
 
     const imagesArr = toFileArray((files as any).images);
@@ -92,7 +103,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const fixedPrice = 500;
-    const discounted = applyFixedCoupon(fixedPrice, coupon);
+    const priceBeforeCoupon = priceBeforeCouponForDelivery(
+      fixedPrice,
+      LITHOPHANE_SHIPPING_COST,
+      deliveryMethod
+    );
+    const discounted = applyFixedCoupon(priceBeforeCoupon, coupon);
     const price = discounted.price;
 
     // Temp order number (schema requires unique)
@@ -110,6 +126,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           discount: discounted.discount,
           couponCode: discounted.coupon?.code || null,
           status: "Ny",
+          deliveryMethod,
           addressLine1,
           addressLine2,
           postalCode,
@@ -174,6 +191,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email,
       type: "lithophane",
       price,
+      deliveryMethod,
       addressLine1,
       addressLine2,
       postalCode,
@@ -196,15 +214,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lines.push(`Order: ${orderNumber}`);
       lines.push(`Namn: ${name}`);
       lines.push(`E-post: ${email}`);
-      lines.push(
-        `Adress: ${addressLine1}${addressLine2 ? ", " + addressLine2 : ""}, ${postalCode} ${city}, ${country}`
-      );
+      lines.push(`Leveranssätt: ${deliveryMethod === "pickup" ? "Hämtas hos mig" : "PostNord"}`);
+      if (deliveryMethod === "shipping") {
+        lines.push(
+          `Adress: ${addressLine1}${addressLine2 ? ", " + addressLine2 : ""}, ${postalCode} ${city}, ${country}`
+        );
+      }
       lines.push(`Telefon: ${phone ?? "-"}`);
       lines.push("");
       lines.push("Lithophane-bilder:");
       for (const f of finalFiles) lines.push(`- ${f.token}  ${f.filename}  —  PLA/vit`);
       lines.push("");
-      lines.push(`Fast pris: ${fixedPrice} kr`);
+      lines.push(`Fast pris inkl. frakt: ${fixedPrice} kr`);
+      lines.push(
+        deliveryMethod === "pickup"
+          ? `Fraktavdrag: -${LITHOPHANE_SHIPPING_COST} kr`
+          : `Frakt (ingår i priset): ${LITHOPHANE_SHIPPING_COST} kr`
+      );
       if (discounted.coupon) {
         lines.push(`Rabattkod: ${discounted.coupon.code}`);
         lines.push(`Rabatt: -${discounted.discount} kr`);
@@ -227,7 +253,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(err?.statusCode || 500).json({
       error: err?.statusCode
         ? err.message
-        : "Något gick fel vid uppladdning/beställning. Mejla gärna oss på carl.1224@outlook.com så hjälper vi dig.",
+        : "Något gick fel vid uppladdning/beställning. Mejla gärna oss på info@carls3d.se så hjälper vi dig.",
       details: process.env.NODE_ENV === "development" ? String(err?.message || err) : undefined,
     });
   }

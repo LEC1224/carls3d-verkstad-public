@@ -1,9 +1,38 @@
-import { calculatePrice } from "../src/lib/pricing";
+import {
+  applyDeliveryToBreakdown,
+  normalizeDeliveryMethod,
+  priceBeforeCouponForDelivery,
+} from "../src/lib/delivery";
 
-test("Calculate price for 100g PLA, 1 file", () => {
-  expect(calculatePrice(100, "PLA", 1)).toBe(94);
+test("pickup removes shipping from a calculated order", () => {
+  const breakdown = {
+    materialCost: 50,
+    baseFee: 50,
+    fileFee: 10,
+    shipping: 66,
+    total: 176,
+  };
+
+  expect(applyDeliveryToBreakdown(breakdown, "pickup")).toEqual({
+    materialCost: 50,
+    baseFee: 50,
+    fileFee: 10,
+    shipping: 0,
+    total: 110,
+  });
 });
 
-test("Calculate price for 100g PLA, 3 files", () => {
-  expect(calculatePrice(100, "PLA", 3)).toBe(114);
+test("shipping leaves a calculated order unchanged", () => {
+  const breakdown = { shipping: 66, total: 176 };
+  expect(applyDeliveryToBreakdown(breakdown, "shipping")).toEqual(breakdown);
+});
+
+test("pickup removes the included shipping from fixed-price products", () => {
+  expect(priceBeforeCouponForDelivery(500, 132, "pickup")).toBe(368);
+  expect(priceBeforeCouponForDelivery(500, 132, "shipping")).toBe(500);
+});
+
+test("unknown delivery values safely default to shipping", () => {
+  expect(normalizeDeliveryMethod("pickup")).toBe("pickup");
+  expect(normalizeDeliveryMethod("anything-else")).toBe("shipping");
 });

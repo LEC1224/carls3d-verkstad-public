@@ -14,6 +14,7 @@ export interface OrderLike {
   email?: string;
   type?: "standard" | "lithophane" | string;
   price?: number;
+  deliveryMethod?: "shipping" | "pickup";
 
   // leverans
   addressLine1?: string;
@@ -56,7 +57,9 @@ export async function notifyOrder(order: OrderLike) {
   const itemsValue = itemsList ? chunk(itemsList, 950) : "—";
 
   const addressLines =
-    [
+    order.deliveryMethod === "pickup"
+      ? ["Hämtas hos mig", order.phone ? `Tel: ${order.phone}` : undefined].filter(Boolean).join("\n")
+      : [
       order.addressLine1,
       order.addressLine2,
       `${order.postalCode ?? ""} ${order.city ?? ""}`.trim(),
@@ -80,7 +83,7 @@ export async function notifyOrder(order: OrderLike) {
           value: order.price != null ? `${order.price} kr` : "—",
           inline: true,
         },
-        { name: "Leverans", value: addressLines, inline: false },
+        { name: order.deliveryMethod === "pickup" ? "Avhämtning" : "Leverans", value: addressLines, inline: false },
         { name: "Produkter", value: itemsValue, inline: false },
       ],
     },
