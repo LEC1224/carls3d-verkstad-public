@@ -1,7 +1,7 @@
 export type DeliveryMethod = "shipping" | "pickup";
 
-export const LITHOPHANE_SHIPPING_COST = 132;
-export const MINECRAFT_TORCH_SHIPPING_COST = 88;
+export const LITHOPHANE_SHIPPING_COST = 60;
+export const MINECRAFT_TORCH_SHIPPING_COST = 60;
 
 export function normalizeDeliveryMethod(value: unknown): DeliveryMethod {
   return String(value).trim().toLowerCase() === "pickup" ? "pickup" : "shipping";

@@ -28,8 +28,9 @@ test("shipping leaves a calculated order unchanged", () => {
 });
 
 test("pickup removes the included shipping from fixed-price products", () => {
-  expect(priceBeforeCouponForDelivery(500, 132, "pickup")).toBe(368);
-  expect(priceBeforeCouponForDelivery(500, 132, "shipping")).toBe(500);
+  expect(priceBeforeCouponForDelivery(500, 60, "pickup")).toBe(440);
+  expect(priceBeforeCouponForDelivery(300, 60, "pickup")).toBe(240);
+  expect(priceBeforeCouponForDelivery(500, 60, "shipping")).toBe(500);
 });
 
 test("unknown delivery values safely default to shipping", () => {
