@@ -17,6 +17,7 @@ model Order {
   discount     Int      @default(0)
   couponCode   String?
   status       String
+  deliveryMethod String @default("shipping")
 
   addressLine1 String
   addressLine2 String?

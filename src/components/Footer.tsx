@@ -15,7 +15,7 @@ export default function Footer() {
         </div>
 
         <div className="text-sm text-gray-700">
-          <div><span className="font-medium">E‑post:</span> <a className="underline" href="mailto:carl.1224@outlook.com">carl.1224@outlook.com</a></div>
+          <div><span className="font-medium">E‑post:</span> <a className="underline" href="mailto:info@carls3d.se">info@carls3d.se</a></div>
           <div className="mt-1">Frakt med PostNord. Betalning via Swish efter bekräftad order.</div>
           <div className="mt-1">Liten verkstad – begränsat lager och färgutbud.</div>
         </div>

@@ -10,6 +10,7 @@ import { logPriceCalculation } from "../../lib/priceCalculationLog";
 import { notifyOrder } from "../../lib/notify";
 import { applyStandardCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
+import { applyDeliveryToBreakdown, normalizeDeliveryMethod } from "../../lib/delivery";
 
 export const config = { api: { bodyParser: false } };
 
@@ -70,15 +71,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // customer
     const name = String(fields.name || "").trim();
     const email = String(fields.email || "").trim();
-    const addressLine1 = String(fields.addressLine1 || "").trim();
-    const addressLine2 = String(fields.addressLine2 || "").trim() || null;
-    const postalCode = String(fields.postalCode || "").trim();
-    const city = String(fields.city || "").trim();
-    const country = String(fields.country || "Sverige").trim();
+    const deliveryMethod = normalizeDeliveryMethod(fields.deliveryMethod);
+    const addressLine1 = deliveryMethod === "pickup" ? "" : String(fields.addressLine1 || "").trim();
+    const addressLine2 =
+      deliveryMethod === "pickup" ? null : String(fields.addressLine2 || "").trim() || null;
+    const postalCode = deliveryMethod === "pickup" ? "" : String(fields.postalCode || "").trim();
+    const city = deliveryMethod === "pickup" ? "" : String(fields.city || "").trim();
+    const country =
+      deliveryMethod === "pickup" ? "" : String(fields.country || "Sverige").trim();
     const phone = String(fields.phone || "").trim();
 
-    if (!name || !email || !phone || !addressLine1 || !postalCode || !city) {
-      return res.status(400).json({ error: "Fyll i namn, e-post, telefon, adress, postnummer och ort." });
+    if (!name || !email || !phone) {
+      return res.status(400).json({ error: "Fyll i namn, e-post och telefon." });
+    }
+    if (deliveryMethod === "shipping" && (!addressLine1 || !postalCode || !city)) {
+      return res.status(400).json({ error: "Fyll i adress, postnummer och ort för leveransen." });
     }
 
     // files + meta
@@ -108,7 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!ALLOWED_3D_EXT.has(ext)) return res.status(400).json({ error: `Endast STL/OBJ: ${origName}` });
       if (f.size > MAX_FILE_SIZE) {
         return res.status(400).json({
-          error: `Filen "${origName}" är för stor (max 100 MB). Kontakta carl.1224@outlook.com för en lösning.`,
+          error: `Filen "${origName}" är för stor (max 100 MB). Kontakta info@carls3d.se för en lösning.`,
         });
       }
 
@@ -151,10 +158,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         gramsEach: e.gramsEach,
         estimate: e.estimate,
       }));
-    const breakdown = applyStandardCoupon(priceCartBreakdown(
-      pricingEntries,
-      upFiles.length
-    ), coupon);
+    const breakdown = applyStandardCoupon(
+      applyDeliveryToBreakdown(
+        priceCartBreakdown(pricingEntries, upFiles.length),
+        deliveryMethod
+      ),
+      coupon
+    );
     logPriceCalculation("order", pricingEntries, breakdown);
     const price = breakdown.total;
 
@@ -173,6 +183,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           discount: breakdown.coupon?.discount || 0,
           couponCode: breakdown.coupon?.code || null,
           status: "Ny",
+          deliveryMethod,
           addressLine1,
           addressLine2,
           postalCode,
@@ -245,6 +256,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email,
       type: "standard",
       price,
+      deliveryMethod,
       addressLine1,
       addressLine2,
       postalCode,
@@ -267,9 +279,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lines.push(`Order: ${orderNumber}`);
       lines.push(`Namn: ${name}`);
       lines.push(`E-post: ${email}`);
-      lines.push(
-        `Adress: ${addressLine1}${addressLine2 ? ", " + addressLine2 : ""}, ${postalCode} ${city}, ${country}`
-      );
+      lines.push(`Leveranssätt: ${deliveryMethod === "pickup" ? "Hämtas hos mig" : "PostNord"}`);
+      if (deliveryMethod === "shipping") {
+        lines.push(
+          `Adress: ${addressLine1}${addressLine2 ? ", " + addressLine2 : ""}, ${postalCode} ${city}, ${country}`
+        );
+      }
       lines.push(`Telefon: ${phone ?? "-"}`);
       lines.push("");
       lines.push("Objekt:");
@@ -288,7 +303,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       lines.push(`Materialkostnad: ${breakdown.materialCost} kr`);
       lines.push(`Filavgift: ${breakdown.fileFee} kr`);
-      lines.push(`Frakt: ${breakdown.shipping} kr`);
+      lines.push(`${deliveryMethod === "pickup" ? "Avhämtning" : "Frakt"}: ${breakdown.shipping} kr`);
       lines.push(`Totalt: ${price} kr`);
       const txtPath = path.join(uploadsDir, `${orderNumber}.txt`);
       fs.writeFileSync(txtPath, lines.join("\n"), "utf8");

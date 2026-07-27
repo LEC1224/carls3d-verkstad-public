@@ -62,10 +62,10 @@ export default function OmKontakt() {
             Har du frågor eller specialförfrågningar är du varmt välkommen att höra av
             dig på{" "}
             <a
-              href="mailto:carl.1224@outlook.com"
+              href="mailto:info@carls3d.se"
               className="text-blue-600 underline"
             >
-              carl.1224@outlook.com
+              info@carls3d.se
             </a>
             .
           </p>

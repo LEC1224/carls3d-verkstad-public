@@ -30,6 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       discount: o.discount,
       couponCode: o.couponCode,
       status: o.status,
+      deliveryMethod: o.deliveryMethod,
 
       // shipping/contact
       addressLine1: o.addressLine1,

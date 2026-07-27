@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
+import DeliveryMethodSelector from "../components/DeliveryMethodSelector";
+import {
+  MINECRAFT_TORCH_SHIPPING_COST,
+  priceBeforeCouponForDelivery,
+  type DeliveryMethod,
+} from "../lib/delivery";
 
 const BASE_PRICE = 100;
 const PRICE_PER_TORCH = 200;
@@ -8,6 +14,7 @@ export default function MinecraftTorchOrder() {
   const [quantity, setQuantity] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>("shipping");
   const [couponCode, setCouponCode] = useState("");
   const [displayedPrice, setDisplayedPrice] = useState(BASE_PRICE + PRICE_PER_TORCH);
   const [couponMessage, setCouponMessage] = useState("");
@@ -21,15 +28,20 @@ export default function MinecraftTorchOrder() {
   const [phone, setPhone] = useState("");
 
   const totalPrice = BASE_PRICE + quantity * PRICE_PER_TORCH;
+  const priceBeforeCoupon = priceBeforeCouponForDelivery(
+    totalPrice,
+    MINECRAFT_TORCH_SHIPPING_COST,
+    deliveryMethod
+  );
 
   useEffect(() => {
-    setDisplayedPrice(totalPrice);
+    setDisplayedPrice(priceBeforeCoupon);
     setCouponMessage("");
-  }, [totalPrice]);
+  }, [priceBeforeCoupon]);
 
   async function applyCoupon() {
     if (!couponCode.trim()) {
-      setDisplayedPrice(totalPrice);
+      setDisplayedPrice(priceBeforeCoupon);
       setCouponMessage("Fyll i en rabattkod först.");
       return;
     }
@@ -42,7 +54,7 @@ export default function MinecraftTorchOrder() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          price: totalPrice,
+          price: priceBeforeCoupon,
           couponCode,
           startFee: BASE_PRICE,
           allowStartFeeRemoval: true,
@@ -51,7 +63,7 @@ export default function MinecraftTorchOrder() {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setDisplayedPrice(totalPrice);
+        setDisplayedPrice(priceBeforeCoupon);
         setCouponMessage(data.error || "Kunde inte tillämpa rabattkoden.");
         return;
       }
@@ -59,7 +71,7 @@ export default function MinecraftTorchOrder() {
       setDisplayedPrice(data.price);
       setCouponMessage(`Rabattkod ${data.coupon?.code || couponCode.trim()} tillämpad.`);
     } catch {
-      setDisplayedPrice(totalPrice);
+      setDisplayedPrice(priceBeforeCoupon);
       setCouponMessage("Kunde inte tillämpa rabattkoden.");
     } finally {
       setIsApplyingCoupon(false);
@@ -67,8 +79,12 @@ export default function MinecraftTorchOrder() {
   }
 
   async function submitOrder() {
-    if (!name || !email || !addressLine1 || !postalCode || !city) {
-      alert("Fyll i namn, e-post, adress, postnummer och ort.");
+    if (!name || !email || !phone) {
+      alert("Fyll i namn, e-post och telefon.");
+      return;
+    }
+    if (deliveryMethod === "shipping" && (!addressLine1 || !postalCode || !city)) {
+      alert("Fyll i adress, postnummer och ort för leveransen.");
       return;
     }
 
@@ -84,6 +100,7 @@ export default function MinecraftTorchOrder() {
         name,
         email,
         quantity,
+        deliveryMethod,
         addressLine1,
         addressLine2,
         postalCode,
@@ -105,6 +122,7 @@ export default function MinecraftTorchOrder() {
     setQuantity(1);
     setName("");
     setEmail("");
+    setDeliveryMethod("shipping");
     setAddressLine1("");
     setAddressLine2("");
     setPostalCode("");
@@ -131,12 +149,21 @@ export default function MinecraftTorchOrder() {
           Pris: <span className="font-semibold">100 kr startavgift</span> +{" "}
           <span className="font-semibold">200 kr per fackla</span>.
         </p>
-        <p className="mb-6">I priset ingår alla 3D-utskrifter, LED-ljuskälla, 3 m sladd med strömbrytare, montering, skruvar och frakt!</p>
+        <p className="mb-6">
+          I priset ingår alla 3D-utskrifter, LED-ljuskälla, 3 m sladd med strömbrytare, montering,
+          skruvar och {MINECRAFT_TORCH_SHIPPING_COST} kr frakt. Väljer du avhämtning tas frakten bort.
+        </p>
         <p className="mb-6 text-gray-700">
           Totalt just nu: <span className="font-semibold">{displayedPrice} kr</span> för {quantity} st.
         </p>
 
         <div className="space-y-6">
+          <DeliveryMethodSelector
+            value={deliveryMethod}
+            onChange={setDeliveryMethod}
+            shippingDescription="Levereras med PostNord. Frakt ingår i priset."
+          />
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">Namn</label>
@@ -149,6 +176,16 @@ export default function MinecraftTorchOrder() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Telefon</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2"
+                required
               />
             </div>
           </div>
@@ -165,6 +202,7 @@ export default function MinecraftTorchOrder() {
             />
           </div>
 
+          {deliveryMethod === "shipping" ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium">Adress</label>
@@ -198,11 +236,12 @@ export default function MinecraftTorchOrder() {
               <label className="mb-1 block text-sm font-medium">Land</label>
               <input value={country} onChange={(e) => setCountry(e.target.value)} className="w-full rounded-xl border px-3 py-2" />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Telefon (valfritt)</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full rounded-xl border px-3 py-2" />
-            </div>
           </div>
+          ) : (
+            <p className="text-sm text-gray-600">
+              Du behöver inte fylla i någon adress. Jag kontaktar dig när beställningen är klar att hämta.
+            </p>
+          )}
 
           <div>
             <label className="mb-1 block text-sm font-medium">Rabattkod</label>
@@ -211,7 +250,7 @@ export default function MinecraftTorchOrder() {
                 value={couponCode}
                 onChange={(e) => {
                   setCouponCode(e.target.value);
-                  setDisplayedPrice(totalPrice);
+                  setDisplayedPrice(priceBeforeCoupon);
                   setCouponMessage("");
                 }}
                 className="w-full rounded-xl border px-3 py-2"

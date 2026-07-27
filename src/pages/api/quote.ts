@@ -8,6 +8,7 @@ import { logPriceCalculation } from "../../lib/priceCalculationLog";
 import { PrismaClient } from "@prisma/client";
 import { applyStandardCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
+import { applyDeliveryToBreakdown, normalizeDeliveryMethod } from "../../lib/delivery";
 
 export const config = { api: { bodyParser: false } };
 const prisma = new PrismaClient();
@@ -98,7 +99,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    const breakdown = applyStandardCoupon(priceCartBreakdown(entries, upFiles.length), coupon);
+    const deliveryMethod = normalizeDeliveryMethod(fields.deliveryMethod);
+    const breakdown = applyStandardCoupon(
+      applyDeliveryToBreakdown(priceCartBreakdown(entries, upFiles.length), deliveryMethod),
+      coupon
+    );
     logPriceCalculation("quote", entries, breakdown);
 
     // cleanup temp files
