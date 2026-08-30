@@ -1,6 +1,7 @@
 import Head from "next/head";
 import Header from "./Header";
 import Footer from "./Footer";
+import TravelNotice from "./TravelNotice";
 
 type Props = { title?: string; children: React.ReactNode };
 
@@ -15,6 +16,7 @@ export default function Layout({ title, children }: Props) {
       </Head>
       <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-white to-gray-50">
         <Header />
+        <TravelNotice />
         <main className="px-4 py-6 sm:px-6 sm:py-10 lg:px-8">{children}</main>
         <Footer />
       </div>

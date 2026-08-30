@@ -3,6 +3,8 @@ import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import type { ColorOption } from "../lib/colors";
 import { ALL_COLORS } from "../lib/colors";
+import { formatSwedishDate } from "../lib/travelPeriods";
+import type { TravelPeriodStatus } from "../lib/travelPeriods";
 
 type OrderDTO = {
   id: number;
@@ -33,6 +35,20 @@ type CouponRow = {
   removeExtraFileFee: boolean;
   removeShipping: boolean;
 };
+type TravelPeriodRow = {
+  id: number;
+  startsOn: string;
+  returnsOn: string;
+  cancelledAt: string | null;
+  status: TravelPeriodStatus;
+};
+
+const travelStatusLabel: Record<TravelPeriodStatus, string> = {
+  scheduled: "Planerad",
+  active: "Pågår",
+  ended: "Avslutad",
+  cancelled: "Avbruten",
+};
 
 export default function Admin() {
   const router = useRouter();
@@ -40,6 +56,11 @@ export default function Admin() {
   const [loading, setLoading] = useState(false);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
+  const [travelPeriods, setTravelPeriods] = useState<TravelPeriodRow[]>([]);
+  const [startsOn, setStartsOn] = useState("");
+  const [returnsOn, setReturnsOn] = useState("");
+  const [travelError, setTravelError] = useState("");
+  const [savingTravelPeriod, setSavingTravelPeriod] = useState(false);
   const [matTab, setMatTab] = useState<"PLA"|"PETG"|"ABS"|"ASA"|"TPU">("PLA");
   const [couponCode, setCouponCode] = useState("");
   const [overallPercent, setOverallPercent] = useState(0);
@@ -51,27 +72,30 @@ export default function Admin() {
   async function load() {
     setLoading(true);
     try {
-      const [oRes, iRes, cRes] = await Promise.all([
+      const [oRes, iRes, cRes, tRes] = await Promise.all([
         fetch("/api/orders"),
         fetch("/api/admin/inventory"),
         fetch("/api/admin/coupons"),
+        fetch("/api/admin/travel-periods"),
       ]);
 
-      if (oRes.status === 401 || iRes.status === 401 || cRes.status === 401) {
+      if (oRes.status === 401 || iRes.status === 401 || cRes.status === 401 || tRes.status === 401) {
         router.replace(`/admin-login?next=${encodeURIComponent("/admin")}`);
         return;
       }
 
-      if (!oRes.ok || !iRes.ok || !cRes.ok) {
+      if (!oRes.ok || !iRes.ok || !cRes.ok || !tRes.ok) {
         throw new Error("Kunde inte hämta admin-data.");
       }
 
       const o = await oRes.json();
       const i = await iRes.json();
       const c = await cRes.json();
+      const t = await tRes.json();
       setOrders(Array.isArray(o) ? o : []);
       setInventory(Array.isArray(i) ? i : []);
       setCoupons(Array.isArray(c) ? c : []);
+      setTravelPeriods(Array.isArray(t) ? t : []);
     } finally {
       setLoading(false);
     }
@@ -155,6 +179,44 @@ export default function Admin() {
     await load();
   }
 
+  async function createTravelPeriod(e: React.FormEvent) {
+    e.preventDefault();
+    setTravelError("");
+    setSavingTravelPeriod(true);
+
+    try {
+      const res = await fetch("/api/admin/travel-periods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startsOn, returnsOn }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTravelError(data.error || "Kunde inte spara bortresan.");
+        return;
+      }
+
+      setStartsOn("");
+      setReturnsOn("");
+      await load();
+    } finally {
+      setSavingTravelPeriod(false);
+    }
+  }
+
+  async function cancelTravelPeriod(id: number) {
+    if (!confirm("Avbryt bortresan? Varningen slutar visas på beställningssidorna.")) return;
+
+    const res = await fetch(`/api/admin/travel-periods/${id}`, { method: "PATCH" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setTravelError(data.error || "Kunde inte avbryta bortresan.");
+      return;
+    }
+    setTravelError("");
+    await load();
+  }
+
   return (
     <Layout>
       <section className="mx-auto max-w-6xl space-y-10">
@@ -163,6 +225,97 @@ export default function Admin() {
           <div className="flex items-center gap-3">
             <button onClick={testDiscord} className="rounded-xl border px-3 py-2 hover:bg-gray-50">Skicka testnotis</button>
             <button onClick={() => load()} className="rounded-xl border px-3 py-2 hover:bg-gray-50">Uppdatera</button>
+          </div>
+        </div>
+
+        {/* Travel periods */}
+        <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold">Bortresor</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Varningen visas på alla beställningssidor från avresedagen och försvinner på hemkomstdagen.
+            </p>
+          </div>
+
+          <form onSubmit={createTravelPeriod} className="grid items-end gap-4 sm:grid-cols-3">
+            <div>
+              <label htmlFor="travel-start" className="mb-1 block text-sm font-medium">Avresedatum</label>
+              <input
+                id="travel-start"
+                type="date"
+                value={startsOn}
+                onChange={(e) => setStartsOn(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="travel-return" className="mb-1 block text-sm font-medium">Hemma igen</label>
+              <input
+                id="travel-return"
+                type="date"
+                value={returnsOn}
+                min={startsOn || undefined}
+                onChange={(e) => setReturnsOn(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2"
+                required
+              />
+            </div>
+            <button
+              className="rounded-xl bg-amber-500 px-4 py-2 text-amber-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+              type="submit"
+              disabled={savingTravelPeriod}
+            >
+              {savingTravelPeriod ? "Sparar…" : "Lägg till bortresa"}
+            </button>
+          </form>
+          {travelError ? <p role="alert" className="mt-3 text-sm text-red-700">{travelError}</p> : null}
+
+          <div className="mt-5 overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="border p-2 text-left">Avresa</th>
+                  <th className="border p-2 text-left">Hemma igen</th>
+                  <th className="border p-2 text-left">Status</th>
+                  <th className="border p-2 text-left">Åtgärd</th>
+                </tr>
+              </thead>
+              <tbody>
+                {travelPeriods.length === 0 ? (
+                  <tr>
+                    <td className="border p-2 text-gray-600" colSpan={4}>Inga bortresor registrerade.</td>
+                  </tr>
+                ) : travelPeriods.map((period) => (
+                  <tr key={period.id} className="odd:bg-white even:bg-gray-50">
+                    <td className="border p-2">{formatSwedishDate(period.startsOn)}</td>
+                    <td className="border p-2">{formatSwedishDate(period.returnsOn)}</td>
+                    <td className="border p-2">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                        period.status === "active"
+                          ? "bg-amber-100 text-amber-900"
+                          : period.status === "scheduled"
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-600"
+                      }`}>
+                        {travelStatusLabel[period.status]}
+                      </span>
+                    </td>
+                    <td className="border p-2">
+                      {(period.status === "active" || period.status === "scheduled") ? (
+                        <button
+                          type="button"
+                          onClick={() => cancelTravelPeriod(period.id)}
+                          className="rounded-lg border border-red-300 px-3 py-1 text-red-700 hover:bg-red-50"
+                        >
+                          Avbryt
+                        </button>
+                      ) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 

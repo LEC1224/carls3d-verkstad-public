@@ -61,3 +61,13 @@ model Coupon {
   removeShipping      Boolean  @default(false)
   createdAt           DateTime @default(now())
 }
+
+model TravelPeriod {
+  id          Int       @id @default(autoincrement())
+  startsOn    DateTime
+  returnsOn   DateTime
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([cancelledAt, startsOn, returnsOn])
+}
