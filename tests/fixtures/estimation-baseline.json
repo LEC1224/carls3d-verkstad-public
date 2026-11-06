@@ -1,0 +1,96 @@
+{
+  "sourceCommit": "6ef4919",
+  "cases": [
+    {
+      "name": "small",
+      "subdivisions": 1,
+      "dimensions": [
+        20,
+        20,
+        20
+      ],
+      "expected": {
+        "volumeMm3": 7999.999999999999,
+        "grams": 5,
+        "source": "pseudo",
+        "layerCount": 100,
+        "layerHeight": 0.2,
+        "xyStep": 0.3375,
+        "wallCount": 2,
+        "topBottomLayers": 5,
+        "infillDensity": 0.15,
+        "shellVolumeMm3": 1377.8099999990225,
+        "solidVolumeMm3": 563.134274999733,
+        "infillVolumeMm3": 863.899171872414,
+        "shellFactor": 0.9,
+        "solidFactor": 0.88
+      }
+    },
+    {
+      "name": "dense",
+      "subdivisions": 100,
+      "dimensions": [
+        120,
+        120,
+        120
+      ],
+      "expected": {
+        "volumeMm3": 1727999.9999998128,
+        "grams": 389.67743406933283,
+        "source": "pseudo",
+        "layerCount": 600,
+        "layerHeight": 0.2,
+        "xyStep": 0.848528137423857,
+        "wallCount": 2,
+        "topBottomLayers": 5,
+        "infillDensity": 0.15,
+        "shellVolumeMm3": 43545.60000006168,
+        "solidVolumeMm3": 24483.571200031045,
+        "infillVolumeMm3": 246226.82401711118,
+        "shellFactor": 0.9,
+        "solidFactor": 0.88
+      }
+    },
+    {
+      "name": "tall",
+      "subdivisions": 100,
+      "dimensions": [
+        30,
+        30,
+        180
+      ],
+      "expected": {
+        "volumeMm3": 161999.99999995972,
+        "grams": 51.30607749567311,
+        "source": "pseudo",
+        "layerCount": 900,
+        "layerHeight": 0.2,
+        "xyStep": 0.3375,
+        "wallCount": 2,
+        "topBottomLayers": 5,
+        "infillDensity": 0.15,
+        "shellVolumeMm3": 19043.302500191785,
+        "solidVolumeMm3": 1381.0722749990146,
+        "infillVolumeMm3": 20951.49417293268,
+        "shellFactor": 0.9,
+        "solidFactor": 0.88
+      }
+    },
+    {
+      "name": "large",
+      "subdivisions": 180,
+      "dimensions": [
+        120,
+        120,
+        120
+      ],
+      "expected": {
+        "volumeMm3": 1728000.0000004158,
+        "grams": 535.6800000001289,
+        "source": "volume",
+        "fallbackReason": "pseudo_skipped_too_many_triangles",
+        "infillDensity": 0.25
+      }
+    }
+  ]
+}

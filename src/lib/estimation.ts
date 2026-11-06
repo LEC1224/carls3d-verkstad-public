@@ -1,10 +1,11 @@
 import fs from "fs";
+import { RequestError } from "./requestErrors";
 
 type Point3 = { x: number; y: number; z: number };
 type Triangle = { a: Point3; b: Point3; c: Point3 };
 type Bounds = { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number };
 type Segment2 = { x1: number; y1: number; x2: number; y2: number; length: number };
-type MeshData = { triangles: Triangle[]; bounds: Bounds; volumeMm3: number };
+type MeshData = { triangles: Triangle[]; triangleCount: number; bounds: Bounds; volumeMm3: number };
 
 export type VolumeResult = {
   volumeMm3: number;
@@ -90,7 +91,7 @@ function expandBounds(bounds: Bounds, p: Point3) {
 function isProbablyBinarySTL(buf: Buffer) {
   if (buf.length < 84) return false;
   const header = buf.slice(0, 80).toString("utf8");
-  if (header.startsWith("solid")) {
+  if (/^\s*solid\b/i.test(header)) {
     const tri = buf.readUInt32LE(80);
     const expected = 84 + tri * 50;
     return expected === buf.length;
@@ -101,17 +102,24 @@ function isProbablyBinarySTL(buf: Buffer) {
 function parseStlBinary(buf: Buffer): MeshData {
   const bounds = makeEmptyBounds();
   const triangles: Triangle[] = [];
-  if (buf.length < 84) return { triangles, bounds: zeroBounds(), volumeMm3: 0 };
+  if (buf.length < 84) return { triangles, triangleCount: 0, bounds: zeroBounds(), volumeMm3: 0 };
   const triCount = buf.readUInt32LE(80);
+  if (84 + triCount * 50 !== buf.length) {
+    throw new RequestError("STL-filen är skadad eller ofullständig. Exportera modellen igen och försök på nytt.");
+  }
   let off = 84;
   let volumeMm3 = 0;
+  let triangleCount = 0;
 
   for (let i = 0; i < triCount && off + 50 <= buf.length; i++) {
     const a = { x: buf.readFloatLE(off + 12), y: buf.readFloatLE(off + 16), z: buf.readFloatLE(off + 20) };
     const b = { x: buf.readFloatLE(off + 24), y: buf.readFloatLE(off + 28), z: buf.readFloatLE(off + 32) };
     const c = { x: buf.readFloatLE(off + 36), y: buf.readFloatLE(off + 40), z: buf.readFloatLE(off + 44) };
+    validatePoint(a); validatePoint(b); validatePoint(c);
     const tri = { a, b, c };
-    triangles.push(tri);
+    triangleCount++;
+    // Large meshes use the existing volume fallback, so retaining their triangles is unnecessary.
+    if (triCount <= MAX_TRIANGLES) triangles.push(tri);
     expandBounds(bounds, a);
     expandBounds(bounds, b);
     expandBounds(bounds, c);
@@ -119,23 +127,27 @@ function parseStlBinary(buf: Buffer): MeshData {
     off += 50;
   }
 
-  return { triangles, bounds: sanitizeBounds(bounds), volumeMm3: Math.abs(volumeMm3) };
+  return { triangles, triangleCount, bounds: sanitizeBounds(bounds), volumeMm3: Math.abs(volumeMm3) };
 }
 
 function parseStlAscii(txt: string): MeshData {
   const bounds = makeEmptyBounds();
   const triangles: Triangle[] = [];
   let volumeMm3 = 0;
+  let triangleCount = 0;
   const verts: Point3[] = [];
 
   for (const raw of txt.split(/\r?\n/)) {
     const m = raw.trim().match(/^vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)/);
     if (!m) continue;
-    const p = { x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) };
+    const p = { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) };
+    validatePoint(p);
     verts.push(p);
     if (verts.length === 3) {
       const tri = { a: verts[0], b: verts[1], c: verts[2] };
-      triangles.push(tri);
+      triangleCount++;
+      if (triangleCount <= MAX_TRIANGLES) triangles.push(tri);
+      else if (triangleCount === Math.floor(MAX_TRIANGLES) + 1) triangles.length = 0;
       expandBounds(bounds, tri.a);
       expandBounds(bounds, tri.b);
       expandBounds(bounds, tri.c);
@@ -144,7 +156,7 @@ function parseStlAscii(txt: string): MeshData {
     }
   }
 
-  return { triangles, bounds: sanitizeBounds(bounds), volumeMm3: Math.abs(volumeMm3) };
+  return { triangles, triangleCount, bounds: sanitizeBounds(bounds), volumeMm3: Math.abs(volumeMm3) };
 }
 
 function parseObj(txt: string): MeshData {
@@ -152,18 +164,20 @@ function parseObj(txt: string): MeshData {
   const triangles: Triangle[] = [];
   const vs: Point3[] = [];
   let volumeMm3 = 0;
+  let triangleCount = 0;
 
   for (const raw of txt.split(/\r?\n/)) {
     const line = raw.trim();
-    if (line.startsWith("v ")) {
+    if (/^v\s/.test(line)) {
       const [, xs, ys, zs] = line.split(/\s+/);
-      const p = { x: parseFloat(xs), y: parseFloat(ys), z: parseFloat(zs) };
+      const p = { x: Number(xs), y: Number(ys), z: Number(zs) };
+      validatePoint(p);
       vs.push(p);
       expandBounds(bounds, p);
       continue;
     }
 
-    if (!line.startsWith("f ")) continue;
+    if (!/^f\s/.test(line)) continue;
     const parts = line.split(/\s+/).slice(1);
     const idxs = parts.map((part) => {
       const n = parseInt(part.split("/")[0], 10);
@@ -176,16 +190,24 @@ function parseObj(txt: string): MeshData {
       const c = vs[idxs[i + 1]];
       if (!a || !b || !c) continue;
       const tri = { a, b, c };
-      triangles.push(tri);
+      triangleCount++;
+      if (triangleCount <= MAX_TRIANGLES) triangles.push(tri);
+      else if (triangleCount === Math.floor(MAX_TRIANGLES) + 1) triangles.length = 0;
       volumeMm3 += triSignedVolume(tri);
     }
   }
 
-  return { triangles, bounds: sanitizeBounds(bounds), volumeMm3: Math.abs(volumeMm3) };
+  return { triangles, triangleCount, bounds: sanitizeBounds(bounds), volumeMm3: Math.abs(volumeMm3) };
 }
 
 function zeroBounds(): Bounds {
   return { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+}
+
+function validatePoint(point: Point3) {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || !Number.isFinite(point.z)) {
+    throw new RequestError("3D-filen innehåller ogiltiga koordinater. Exportera modellen igen och försök på nytt.");
+  }
 }
 
 function sanitizeBounds(bounds: Bounds) {
@@ -202,7 +224,7 @@ function readMesh(filePath: string): MeshData {
   if (lower.endsWith(".obj")) {
     return parseObj(buf.toString("utf8"));
   }
-  return { triangles: [], bounds: zeroBounds(), volumeMm3: 0 };
+  return { triangles: [], triangleCount: 0, bounds: zeroBounds(), volumeMm3: 0 };
 }
 
 function estimateGridStep(bounds: Bounds, layerCount: number) {
@@ -241,21 +263,50 @@ function segmentAtZ(tri: Triangle, z: number): Segment2 | null {
   return length > eps ? { x1: pts[0].x, y1: pts[0].y, x2: pts[1].x, y2: pts[1].y, length } : null;
 }
 
-function buildLayerSegments(triangles: Triangle[], z: number) {
-  const segments: Segment2[] = [];
-  let perimeter = 0;
-
-  for (const tri of triangles) {
-    const minZ = Math.min(tri.a.z, tri.b.z, tri.c.z);
-    const maxZ = Math.max(tri.a.z, tri.b.z, tri.c.z);
-    if (z < minZ || z >= maxZ) continue;
-    const seg = segmentAtZ(tri, z);
-    if (!seg) continue;
-    segments.push(seg);
-    perimeter += triangleArea2D(seg);
+function createLayerSegmentBuilder(triangles: Triangle[]) {
+  // Sweep upward through the mesh. Typed arrays bound the index to 32 bytes per triangle;
+  // the active linked list avoids allocating a triangle list for every layer.
+  const minZs = new Float64Array(triangles.length);
+  const maxZs = new Float64Array(triangles.length);
+  const indices = new Uint32Array(triangles.length);
+  let count = 0;
+  for (let index = 0; index < triangles.length; index++) {
+    const triangle = triangles[index];
+    minZs[index] = Math.min(triangle.a.z, triangle.b.z, triangle.c.z);
+    maxZs[index] = Math.max(triangle.a.z, triangle.b.z, triangle.c.z);
+    if (maxZs[index] > minZs[index]) indices[count++] = index;
   }
+  const starts = indices.subarray(0, count).sort((a, b) => minZs[a] - minZs[b]);
+  const ends = starts.slice().sort((a, b) => maxZs[a] - maxZs[b]);
+  const next = new Int32Array(triangles.length).fill(-1);
+  const previous = new Int32Array(triangles.length).fill(-1);
+  let head = -1;
+  let nextStart = 0;
+  let nextEnd = 0;
 
-  return { segments, perimeter };
+  return (z: number) => {
+    while (nextStart < starts.length && minZs[starts[nextStart]] <= z) {
+      const index = starts[nextStart++];
+      next[index] = head;
+      if (head !== -1) previous[head] = index;
+      head = index;
+    }
+    while (nextEnd < ends.length && maxZs[ends[nextEnd]] <= z) {
+      const index = ends[nextEnd++];
+      if (previous[index] === -1) head = next[index];
+      else next[previous[index]] = next[index];
+      if (next[index] !== -1) previous[next[index]] = previous[index];
+    }
+    const segments: Segment2[] = [];
+    let perimeter = 0;
+    for (let index = head; index !== -1; index = next[index]) {
+      const segment = segmentAtZ(triangles[index], z);
+      if (!segment) continue;
+      segments.push(segment);
+      perimeter += triangleArea2D(segment);
+    }
+    return { segments, perimeter };
+  };
 }
 
 function rasterizeLayer(segments: Segment2[], bounds: Bounds, step: number, nx: number, ny: number) {
@@ -335,8 +386,8 @@ function estimateVolumeFallback(mesh: MeshData, material: string, fallbackReason
 }
 
 function estimatePseudoSlice(mesh: MeshData, material: string): VolumeResult | null {
+  if (mesh.triangleCount > MAX_TRIANGLES) return estimateVolumeFallback(mesh, material, "pseudo_skipped_too_many_triangles");
   if (mesh.triangles.length === 0) return null;
-  if (mesh.triangles.length > MAX_TRIANGLES) return estimateVolumeFallback(mesh, material, "pseudo_skipped_too_many_triangles");
   const height = mesh.bounds.maxZ - mesh.bounds.minZ;
   if (height <= 0) return null;
 
@@ -351,9 +402,10 @@ function estimatePseudoSlice(mesh: MeshData, material: string): VolumeResult | n
   const erosionSteps = Math.max(1, Math.round((DEFAULT_WALL_COUNT * DEFAULT_LINE_WIDTH_MM) / xyStep));
 
   const occupancies: Uint8Array[] = [];
+  const buildLayerSegments = createLayerSegmentBuilder(mesh.triangles);
   for (let layer = 0; layer < layerCount; layer++) {
     const z = Math.min(mesh.bounds.maxZ - 1e-6, mesh.bounds.minZ + (layer + 0.5) * DEFAULT_LAYER_HEIGHT_MM);
-    const { segments } = buildLayerSegments(mesh.triangles, z);
+    const { segments } = buildLayerSegments(z);
     occupancies.push(rasterizeLayer(segments, mesh.bounds, xyStep, nx, ny).occ);
   }
 
@@ -413,6 +465,9 @@ function estimatePseudoSlice(mesh: MeshData, material: string): VolumeResult | n
 
 export function estimateFromFile(filePath: string, material: string): VolumeResult {
   const mesh = readMesh(filePath);
+  if (!mesh.triangleCount || !Number.isFinite(mesh.volumeMm3)) {
+    throw new RequestError("Kunde inte läsa någon giltig 3D-modell ur filen. Exportera den som STL eller OBJ och försök igen.");
+  }
   try {
     const pseudo = estimatePseudoSlice(mesh, material);
     if (pseudo) return pseudo;

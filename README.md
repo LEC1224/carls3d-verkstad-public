@@ -1,90 +1,111 @@
 # Carl's 3D-verkstad
 
-Carl's 3D-verkstad is a Next.js web application for uploading 3D printing files, getting instant price estimates, and ordering prints.\
-It supports lithophane cube previews, FDM price calculation, and a smooth checkout flow.
+A Swedish website for 3D-print quotes and orders, lithophane lamps with personal photos, and Minecraft torches. Built with Next.js 15 Pages Router, React 18, TypeScript, Tailwind CSS, Prisma 5 with SQLite, Formidable, and Three.js.
 
----
+## Features
 
-## 🚀 Features
+- Upload STL/OBJ files, choose material and color per file, set copies, and calculate a detailed price before ordering.
+- Open an optional 3D preview in the browser with rotation, zoom, dimensions, and the selected color. Previewing does not upload the file.
+- Order a lithophane lamp with four photo previews, or choose the number of Minecraft torches.
+- Choose PostNord delivery or pickup, apply a discount code, and keep the order number and total visible after submission.
+- Manage orders, searchable filters, available material colors, coupons, and travel notices at `/admin`.
+- Optionally notify Discord about new orders. Payment remains via Swish after order confirmation.
 
-- **3D File Upload**
-  - Supports STL and other common 3D printing formats.
-  - Files are uploaded to the `/upload/` directory.
-  - File-based price calculation before entering shipping details.
-- **Lithophane Cube Generator**
-  - Showcases what a lithophane cube is with an example image.
-  - Order lithophane cube with custom image uploads for a fixed price.
-- **Price Estimation**
-  - Quick "Beräkna pris" (Calculate Price) button next to file upload.
-- **Responsive Design**
-  - Works on desktop, tablet, and mobile.
-- **Admin Panel**
-  - Available at `/admin`.
-  - Allows logging in with admin credentials.
-  - Provides tools to edit current orders and manage available colors for all plastic types.
-- **Discord Integration**
-  - Uses Discord webhook to send notification whenever a new order is created.
+## Upload limits
 
----
+| Use | Formats | Limits |
+| --- | --- | --- |
+| Standard order / quote | STL, OBJ | 100 MB per file, 20 files and 200 MB per request |
+| Browser 3D preview | STL, OBJ | 20 MB per file; very detailed models may be skipped while ordering remains available |
+| Lithophane lamp | JPEG (`.jpg`/`.jpeg`), PNG, WebP | Exactly 4 images, 20 MB per image |
 
-## 📦 Tech Stack
+Additional copies do not count as extra files. Duplicate cart rows do count toward the file count and total upload size. Temporary uploads are isolated under `uploads/tmp/`; successful orders keep their final files and text receipts under `uploads/`. These directories and the local database are excluded from Git.
 
-- **Framework**: [Next.js](https://nextjs.org/)
-- **Backend**: [Prisma](https://www.prisma.io/) ORM with SQLite/PostgreSQL
-- **File Handling**: [Formidable](https://github.com/node-formidable/formidable) for uploads
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **Language**: TypeScript
+## Local development
 
----
+Use a separate checkout or worktree for development. Do not copy production customer files, databases, environment files, or notification credentials into it. Run the commands below from that checkout's root.
 
-## ⚙️ Installation & Development
+```powershell
+npm ci
+Copy-Item .env.example .env.local
+npx prisma generate
+# Initialize only this fresh local checkout's SQLite database:
+if (-not (Test-Path -LiteralPath prisma/dev.db)) {
+  New-Item -ItemType File -Path prisma/dev.db | Out-Null
+}
+npx prisma db push
+npm run dev -- --hostname 127.0.0.1 --port 3100
+```
 
-```bash
-# Install dependencies
-npm install
+Edit `.env.local` to set a local `ADMIN_PASSWORD` and a random `ADMIN_SECRET`. Keep `DISCORD_WEBHOOK` empty during local testing so test orders cannot send notifications. The development site is available at [http://127.0.0.1:3100](http://127.0.0.1:3100).
 
-# Run development server
-npm run dev
+The current Prisma schema uses `provider = "sqlite"` and the literal URL `file:./dev.db`, which resolves to `prisma/dev.db`. **`DATABASE_URL` is not read by this schema.** Changing database configuration requires an explicit schema change and separate migration planning. The setup above initializes a local database; it is not a production migration.
 
-# Build for production
+The guarded file creation handles Prisma 5 on Windows reporting `Schema engine error` when the SQLite file does not exist. It leaves an existing database untouched; do not force creation or reset an existing file.
+
+## Environment settings
+
+Start from `.env.example`; do not commit `.env.local` or real credentials.
+
+| Variable | Purpose / code default |
+| --- | --- |
+| `ADMIN_PASSWORD` | Password for the admin login; required to use admin features |
+| `ADMIN_SECRET` | Secret used to sign the admin cookie; required to use admin features |
+| `DISCORD_WEBHOOK` | Optional Discord webhook; leave empty for local verification |
+| `START_FEE` | Standard-order start fee; default `50` kr |
+| `FILL_FACTOR` | Fill factor for the volume-based fallback estimate; default `0.25` |
+| `PACKAGING_GRAMS` | Packaging weight used for standard-order shipping; default `30` g |
+| `MIN_GRAMS_PER_FILE` | Minimum estimated weight per file; default `5` g |
+
+The `QUOTE_*` settings in `src/lib/estimation.ts` control the detailed estimator. The table lists code defaults, not a production site's configured overrides. Preserve existing business pricing when changing or deploying configuration.
+
+## Verification before review
+
+```powershell
+# TypeScript and all regression tests:
+npm run check
+
+# Individual checks when investigating a failure:
+npm run typecheck
+npm test -- --runInBand
+npm test -- --runInBand tests/checkoutPage.test.tsx
+
+# Compile an optimized local build; prebuild regenerates Prisma Client:
 npm run build
-
-# Start production server
-npm start
+# Check the compiled pages, lazy viewer chunks, and real admin middleware:
+node scripts/smoke-built-site.cjs
+npm start -- --hostname 127.0.0.1 --port 3100
 ```
 
-The app will be available at [http://localhost:3000](http://localhost:3000).
+Stop the development server before starting the optimized server on the same port. Building and running locally do not deploy the site.
 
----
+The built-site smoke check starts and stops its own loopback server on an available port with random disposable login settings and a blank notification webhook. It checks public pages, the compiled admin guard, cookie compatibility, unauthenticated API access, and route metadata without creating orders, reading customer data, or writing the database. Results are saved to `.cache/built-site-smoke/report.json`.
 
-## 🔑 Environment Setup (`.env.local`)
+Tests use mocked HTTP/database boundaries and generated temporary fixtures. They cover pricing and estimator equivalence, upload limits and cleanup, multipart file ordering, transactional file persistence, input validation, inventory defaults, stale requests, order submission, and admin recovery. Browser component tests use Jest's jsdom environment; they do not replace a real browser check of WebGL, image layout, or native mobile controls.
 
-Before running the application, create a `.env.local` file in the root directory with the following variables:
+For changed customer flows, check the homepage, standard order, lamp, and torch pages at narrow mobile and desktop widths. Verify keyboard navigation, menu/Escape behavior, inline errors, pickup versus shipping, coupon invalidation, and order confirmation using synthetic files and test contact details. Check admin search, filters, and action feedback against the local database. Confirm failed quotes leave no request directories in `uploads/tmp/` and successful test orders retain their final files. Do not run these checks against production.
 
-```bash
-# Database
-DATABASE_URL="file:./prisma/dev.db"
+## Estimator benchmark
 
-# Discord webhook for receiving requests
-DISCORD_WEBHOOK=USE YOUR DISCORD WEBHOOK API URL HERE
+```powershell
+# Current estimator only:
+node scripts/benchmark-estimation.cjs
 
-# Admin authentication
-ADMIN_PASSWORD=CHOOSE A GOOD PASSWORD HERE
-ADMIN_SECRET=USE A RANDOM STRING OF CHARACTERS HERE   # used to sign the cookie
-
-# Pricing and weight factors
-START_FEE=50                        # Starting cost per order
-FILL_FACTOR=0.30                    # Average density of an object (percent)
-PACKAGING_GRAMS=50                  # Weight of packaging material
-MIN_GRAMS_PER_FILE=6                # Minimum grams charged per file
+# Compare with the original estimator in this repository:
+node scripts/benchmark-estimation.cjs --baseline=6ef4919
 ```
 
-**Notes:**
+The benchmark generates synthetic small, dense, tall, and large STL fixtures, runs each three times, and writes results to `.cache/estimation-benchmark/report.json`. Comparison reports the median runtime, process RSS, and whether the complete estimate is unchanged; mismatched results cause a nonzero exit. Timing varies with the machine and load. The harness does not load `.env.local`, access customer uploads or the database, or send notifications. Its generated cache is ignored by Git.
 
-- `DATABASE_URL` points to your Prisma database (SQLite for dev, PostgreSQL for production).
-- `DISCORD_WEBHOOK` is used to receive order notifications in Discord. Create a Discord server and navigate to Server Settings->Integrations->Webhooks to create a webhook!
-- `ADMIN_PASSWORD` and `ADMIN_SECRET` secure the admin panel and cookies.
-- `START_FEE`, `FILL_FACTOR`, `PACKAGING_GRAMS`, and `MIN_GRAMS_PER_FILE` are used in the price calculation logic.
+For optional extended numerical validation, run:
+
+```powershell
+node scripts/validate-estimation.cjs --baseline=6ef4919 --cases=100 --seed=20261106
+```
+
+This deterministic check compares complete estimates and prices across 100 generated models with varied geometry, materials, and STL/OBJ encodings. The recorded local run matched all 100 estimates and all 100 prices exactly. It writes parameters and per-case results to `.cache/estimation-validation/report.json` and exits nonzero on a mismatch. It is separate from routine tests and uses synthetic files with fixed settings, without loading environment files or contacting services.
+
+These commands are for local implementation and verification. Production deployment is a separate, explicitly authorized operation.
 
 ---
 

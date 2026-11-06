@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { DeliveryMethod } from "../lib/delivery";
 
 const PICKUP_MAPS_URL = "https://maps.app.goo.gl/V5MMqLNZgEKiM88Y9";
@@ -13,6 +14,7 @@ export default function DeliveryMethodSelector({
   onChange,
   shippingDescription = "Levereras med PostNord. Frakt tillkommer.",
 }: Props) {
+  const choiceId = useId();
   const choices: Array<{
     value: DeliveryMethod;
     title: string;
@@ -31,7 +33,7 @@ export default function DeliveryMethodSelector({
   ];
 
   return (
-    <fieldset>
+    <fieldset className="min-w-0">
       <legend className="mb-2 text-sm font-medium">Hur vill du få din beställning?</legend>
       <div className="grid gap-3 sm:grid-cols-2">
         {choices.map((choice) => (
@@ -49,12 +51,14 @@ export default function DeliveryMethodSelector({
                 name="deliveryMethod"
                 value={choice.value}
                 checked={value === choice.value}
+                aria-labelledby={`${choiceId}-${choice.value}-title`}
+                aria-describedby={`${choiceId}-${choice.value}-description`}
                 onChange={() => onChange(choice.value)}
                 className="mt-1"
               />
-              <span>
-                <span className="block font-medium">{choice.title}</span>
-                <span className="mt-1 block text-sm text-gray-600">{choice.description}</span>
+              <span className="min-w-0">
+                <span id={`${choiceId}-${choice.value}-title`} className="block font-medium">{choice.title}</span>
+                <span id={`${choiceId}-${choice.value}-description`} className="mt-1 block text-sm text-gray-600">{choice.description}</span>
               </span>
             </span>
           </label>
@@ -66,10 +70,11 @@ export default function DeliveryMethodSelector({
           <a
             href={PICKUP_MAPS_URL}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="font-medium text-emerald-700 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-800"
           >
             Carls 3D-verkstad på Google Maps
+            <span className="sr-only"> (öppnas i ny flik)</span>
           </a>
           .
         </p>

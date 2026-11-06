@@ -1,9 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../../lib/prisma";
 import { requireAdmin } from "../../../lib/adminAuth";
 import { clampPercent, normalizeCouponCode } from "../../../lib/coupons";
 
-const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!requireAdmin(req, res)) return;

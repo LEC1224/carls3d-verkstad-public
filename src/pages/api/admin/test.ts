@@ -1,11 +1,10 @@
 // src/pages/api/admin/test.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
-import { nanoid } from "nanoid";
+import { prisma } from "../../../lib/prisma";
+import { randomBytes } from "crypto";
 import { notifyOrder } from "../../../lib/notify";
 import { requireAdmin } from "../../../lib/adminAuth";
 
-const prisma = new PrismaClient();
 
 function makeOrderNumber(id: number, createdAt: Date, name: string): string {
   const year = createdAt.getFullYear();
@@ -17,10 +16,14 @@ function makeOrderNumber(id: number, createdAt: Date, name: string): string {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!requireAdmin(req, res)) return;
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Endast POST stöds." });
+  }
 
   try {
     // --- Create a minimal test order in DB (matching your current Order model) ---
-    const tempOrderNumber = `TMP-${Date.now()}-${nanoid(6)}`;
+    const tempOrderNumber = `TMP-${Date.now()}-${randomBytes(6).toString("hex")}`;
     let created = await prisma.order.create({
       data: {
         orderNumber: tempOrderNumber, // required + unique in your schema
@@ -38,8 +41,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Create a couple of dummy file rows with tokens
     const items = [
-      { filename: "test1.stl", token: nanoid(10), material: "PLA", color: "vit", copies: 1, gramsEach: 15 },
-      { filename: "test2.obj", token: nanoid(10), material: "ASA", color: "svart", copies: 2, gramsEach: 22 },
+      { filename: "test1.stl", token: randomBytes(12).toString("hex"), material: "PLA", color: "vit", copies: 1, gramsEach: 15 },
+      { filename: "test2.obj", token: randomBytes(12).toString("hex"), material: "ASA", color: "svart", copies: 2, gramsEach: 22 },
     ];
     await prisma.orderFile.createMany({
       data: items.map((it) => ({ orderId: created.id, filename: it.filename, token: it.token })),

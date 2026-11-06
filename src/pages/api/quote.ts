@@ -1,117 +1,56 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import formidable from "formidable";
-import fs from "fs";
 import path from "path";
 import { estimateFromFile } from "../../lib/estimation";
 import { priceCartBreakdown } from "../../lib/pricing";
 import { logPriceCalculation } from "../../lib/priceCalculationLog";
-import { PrismaClient } from "@prisma/client";
 import { applyStandardCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
 import { applyDeliveryToBreakdown, normalizeDeliveryMethod } from "../../lib/delivery";
+import { prisma } from "../../lib/prisma";
+import { parseItemsMeta, singleField } from "../../lib/orderValidation";
+import { RequestError, publicError } from "../../lib/requestErrors";
+import { parseUpload, uploadedFiles } from "../../lib/uploads";
+import { MAX_FILE_SIZE, MAX_MODEL_FILES, MAX_TOTAL_MODEL_SIZE } from "../../lib/validation";
+import { validateAvailableColors } from "../../lib/inventory";
+import { validatePriceBreakdown } from "../../lib/priceValidation";
 
 export const config = { api: { bodyParser: false } };
-const prisma = new PrismaClient();
-const ALLOWED_3D_EXT = new Set([".stl", ".obj"]);
-const MAX_FILE_SIZE = 1000 * 1024 * 1024;
-
-function ensureDir(dir: string) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
-function parseForm(req: NextApiRequest, uploadDir: string) {
-  const form = formidable({ multiples: true, uploadDir, keepExtensions: true, maxFileSize: MAX_FILE_SIZE });
-  return new Promise<{ fields: formidable.Fields; files: formidable.Files }>((resolve, reject) => {
-    form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
-  });
-}
-function toArray<T>(v: T | T[] | undefined): T[] { if (!v) return []; return Array.isArray(v) ? v : [v]; }
-function cleanupFiles(files: Array<{ filepath?: string }>) {
-  for (const f of files) {
-    if (f.filepath) {
-      try { fs.unlinkSync(f.filepath); } catch {}
-    }
-  }
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Endast POST." });
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Endast POST." });
+  }
+  let upload: Awaited<ReturnType<typeof parseUpload>> | undefined;
   try {
-    const uploadDir = path.join(process.cwd(), "uploads", "tmp");
-    console.info("[quote] start", JSON.stringify({ cwd: process.cwd(), uploadDir }));
-    ensureDir(uploadDir);
-    const { fields, files } = await parseForm(req, uploadDir);
-
-    const upFiles = toArray((files as any).files);
-    console.info("[quote] parsed", JSON.stringify({ fileCount: upFiles.length }));
-    if (upFiles.length === 0) return res.status(400).json({ error: "Ladda upp minst en STL/OBJ-fil." });
-
-    let coupon = null;
-    try {
-      coupon = await requireValidCoupon(prisma, fields.couponCode);
-    } catch (e) {
-      cleanupFiles(upFiles);
-      throw e;
-    }
-
-    const meta = JSON.parse(String(fields.itemsMeta || "[]"));
-    if (!Array.isArray(meta) || meta.length !== upFiles.length) {
-      return res.status(400).json({ error: "itemsMeta saknas eller matchar inte antal filer." });
-    }
-
-    const entries = [];
-    for (let i = 0; i < upFiles.length; i++) {
-      const f = upFiles[i];
-      const m = meta[i] || {};
-      const ext = path.extname(f.originalFilename || "").toLowerCase();
-      if (!ALLOWED_3D_EXT.has(ext)) return res.status(400).json({ error: `Endast STL/OBJ: ${f.originalFilename}` });
-      if (f.size > MAX_FILE_SIZE) return res.status(400).json({ error: `Filen är för stor: ${f.originalFilename}` });
-
-      const started = Date.now();
-      const est = estimateFromFile(f.filepath, m.material || "PLA");
-      console.info("[quote] estimated", JSON.stringify({
-        name: f.originalFilename || path.basename(f.filepath),
-        size: f.size,
-        ms: Date.now() - started,
-        source: est.source,
-        fallbackReason: est.fallbackReason || null,
-      }));
-      entries.push({
-        index: i,
-        name: f.originalFilename || path.basename(f.filepath),
-        material: String(m.material || "PLA"),
-        color: String(m.color || "white"),
-        copies: Math.max(parseInt(String(m.copies || "1"), 10), 1),
-        gramsEach: est.grams,
-        estimate: {
-          source: est.source,
-          fallbackReason: est.fallbackReason,
-          volumeMm3: est.volumeMm3,
-          layerCount: est.layerCount,
-          layerHeight: est.layerHeight,
-          xyStep: est.xyStep,
-          wallCount: est.wallCount,
-          topBottomLayers: est.topBottomLayers,
-          infillDensity: est.infillDensity,
-          shellVolumeMm3: est.shellVolumeMm3,
-          solidVolumeMm3: est.solidVolumeMm3,
-          infillVolumeMm3: est.infillVolumeMm3,
-          shellFactor: est.shellFactor,
-          solidFactor: est.solidFactor,
-        },
-      });
-    }
-
-    const deliveryMethod = normalizeDeliveryMethod(fields.deliveryMethod);
+    upload = await parseUpload(req, {
+      maxFileSize: MAX_FILE_SIZE, maxTotalFileSize: MAX_TOTAL_MODEL_SIZE, maxFiles: MAX_MODEL_FILES,
+    });
+    const { fields, files } = upload;
+    const upFiles = uploadedFiles(files, "files");
+    if (!upFiles.length) throw new RequestError("Ladda upp minst en STL/OBJ-fil.");
+    const meta = parseItemsMeta(fields.itemsMeta, upFiles.length);
+    await validateAvailableColors(prisma, meta);
+    const coupon = await requireValidCoupon(prisma, singleField(fields.couponCode, "rabattkod"));
+    const entries = upFiles.map((file, index) => {
+      const name = file.originalFilename || path.basename(file.filepath);
+      if (!/\.(stl|obj)$/i.test(name)) throw new RequestError(`Endast STL/OBJ: ${name}`);
+      const item = meta[index];
+      const estimate = estimateFromFile(file.filepath, item.material);
+      return { index, name, ...item, gramsEach: estimate.grams, estimate };
+    });
+    const deliveryMethod = normalizeDeliveryMethod(singleField(fields.deliveryMethod, "leveranssätt", "shipping"));
     const breakdown = applyStandardCoupon(
-      applyDeliveryToBreakdown(priceCartBreakdown(entries, upFiles.length), deliveryMethod),
-      coupon
+      applyDeliveryToBreakdown(priceCartBreakdown(entries, upFiles.length), deliveryMethod), coupon
     );
+    validatePriceBreakdown(breakdown);
     logPriceCalculation("quote", entries, breakdown);
-
-    // cleanup temp files
-    cleanupFiles(upFiles);
-
     return res.status(200).json({ breakdown });
-  } catch (e: any) {
-    console.error("/api/quote error:", e);
-    return res.status(e?.statusCode || 500).json({ error: e?.statusCode ? e.message : "Kunde inte beräkna offert.", detail: e?.message || null });
+  } catch (error) {
+    console.error("/api/quote error:", error);
+    const { status, ...body } = publicError(error, "Kunde inte beräkna offert.");
+    return res.status(status).json(body);
+  } finally {
+    await upload?.cleanup().catch((error) => console.error("Kunde inte städa offertfiler:", error));
   }
 }

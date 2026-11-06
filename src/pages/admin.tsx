@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import type { ColorOption } from "../lib/colors";
 import { ALL_COLORS } from "../lib/colors";
 import { formatSwedishDate } from "../lib/travelPeriods";
 import type { TravelPeriodStatus } from "../lib/travelPeriods";
+import { filterOrders, orderTypeLabels } from "../lib/adminOrders";
+import type { OrderFilters } from "../lib/adminOrders";
+import { CheckoutRequestTimeoutError, fetchCheckoutJson } from "../lib/checkoutRequest";
 
 type OrderDTO = {
   id: number;
@@ -13,14 +16,12 @@ type OrderDTO = {
   name: string;
   email: string;
   type: string;
-  material?: string | null;
-  color?: string | null;
   price: number;
   discount?: number;
   couponCode?: string | null;
   status: string;
   deliveryMethod?: "shipping" | "pickup";
-  files: string[]; // if your /api/orders returns string[], else adjust
+  files: string[];
   addressLine1?: string; addressLine2?: string | null;
   postalCode?: string; city?: string; country?: string; phone?: string | null;
 };
@@ -53,14 +54,22 @@ const travelStatusLabel: Record<TravelPeriodStatus, string> = {
 export default function Admin() {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderDTO[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const pendingActionRef = useRef<string | null>(null);
+  const loadController = useRef<AbortController | null>(null);
+  const lifecycle = useRef({ mounted: false, generation: 0 });
+  const [filters, setFilters] = useState<OrderFilters>({ query: "", status: "all", type: "all", delivery: "all" });
+  const [page, setPage] = useState(1);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
   const [travelPeriods, setTravelPeriods] = useState<TravelPeriodRow[]>([]);
   const [startsOn, setStartsOn] = useState("");
   const [returnsOn, setReturnsOn] = useState("");
-  const [travelError, setTravelError] = useState("");
-  const [savingTravelPeriod, setSavingTravelPeriod] = useState(false);
   const [matTab, setMatTab] = useState<"PLA"|"PETG"|"ABS"|"ASA"|"TPU">("PLA");
   const [couponCode, setCouponCode] = useState("");
   const [overallPercent, setOverallPercent] = useState(0);
@@ -69,167 +78,235 @@ export default function Admin() {
   const [removeExtraFileFee, setRemoveExtraFileFee] = useState(false);
   const [removeShipping, setRemoveShipping] = useState(false);
 
+  function validateAdminResponse(response: Response, data: any) {
+    if (response.status === 401) {
+      void router.replace(`/admin-login?next=${encodeURIComponent("/admin")}`);
+      throw new Error("Din inloggning har gått ut. Logga in igen.");
+    }
+    if (!response.ok) throw new Error(data?.error || "Åtgärden kunde inte slutföras. Försök igen.");
+    return data;
+  }
+
+  function isCurrentGeneration(generation: number) {
+    return lifecycle.current.mounted && lifecycle.current.generation === generation;
+  }
+
+  async function readAdminResponse(response: Response, generation: number) {
+    if (!isCurrentGeneration(generation)) return false;
+    const data = await response.json().catch(() => null);
+    if (!isCurrentGeneration(generation)) return false;
+    validateAdminResponse(response, data);
+    return true;
+  }
+
   async function load() {
+    const generation = lifecycle.current.generation;
+    if (!isCurrentGeneration(generation)) return;
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
+    setLoadError("");
     try {
-      const [oRes, iRes, cRes, tRes] = await Promise.all([
-        fetch("/api/orders"),
-        fetch("/api/admin/inventory"),
-        fetch("/api/admin/coupons"),
-        fetch("/api/admin/travel-periods"),
-      ]);
-
-      if (oRes.status === 401 || iRes.status === 401 || cRes.status === 401 || tRes.status === 401) {
-        router.replace(`/admin-login?next=${encodeURIComponent("/admin")}`);
-        return;
+      const data = await Promise.all([
+        "/api/orders", "/api/admin/inventory", "/api/admin/coupons", "/api/admin/travel-periods",
+      ].map(async (url) => {
+        const { response, data } = await fetchCheckoutJson(url, {
+          signal: controller.signal, cache: "no-store",
+        }, 15_000);
+        if (controller.signal.aborted || !isCurrentGeneration(generation)) return [];
+        const rows = validateAdminResponse(response, data);
+        if (!Array.isArray(rows)) throw new Error("Servern skickade ett oväntat svar. Försök uppdatera igen.");
+        return rows;
+      }));
+      if (controller.signal.aborted || !isCurrentGeneration(generation)) return;
+      setOrders(data[0]);
+      setInventory(data[1]);
+      setCoupons(data[2]);
+      setTravelPeriods(data[3]);
+      setHasLoaded(true);
+    } catch (error) {
+      if (!controller.signal.aborted && isCurrentGeneration(generation)) {
+        setLoadError(error instanceof CheckoutRequestTimeoutError
+          ? "Hämtningen tog för lång tid. Kontrollera anslutningen och försök igen."
+          : error instanceof Error && !(error instanceof TypeError) ? error.message : "Kunde inte hämta admin-data. Kontrollera anslutningen.");
       }
-
-      if (!oRes.ok || !iRes.ok || !cRes.ok || !tRes.ok) {
-        throw new Error("Kunde inte hämta admin-data.");
-      }
-
-      const o = await oRes.json();
-      const i = await iRes.json();
-      const c = await cRes.json();
-      const t = await tRes.json();
-      setOrders(Array.isArray(o) ? o : []);
-      setInventory(Array.isArray(i) ? i : []);
-      setCoupons(Array.isArray(c) ? c : []);
-      setTravelPeriods(Array.isArray(t) ? t : []);
     } finally {
-      setLoading(false);
+      controller.abort();
+      if (loadController.current === controller && isCurrentGeneration(generation)) setLoading(false);
     }
   }
-  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    lifecycle.current.mounted = true;
+    lifecycle.current.generation += 1;
+    void load();
+    return () => {
+      lifecycle.current.mounted = false;
+      lifecycle.current.generation += 1;
+      pendingActionRef.current = null;
+      loadController.current?.abort();
+    };
+  }, []);
+
+  async function runAction(key: string, request: () => Promise<Response>, successMessage: string, refresh = true) {
+    const generation = lifecycle.current.generation;
+    if (!isCurrentGeneration(generation) || pendingActionRef.current || loading || (!hasLoaded && key !== "logout")) return false;
+    pendingActionRef.current = key;
+    setPendingAction(key);
+    setActionError("");
+    setActionNotice("");
+    try {
+      const accepted = await readAdminResponse(await request(), generation);
+      if (!accepted || !isCurrentGeneration(generation)) return false;
+      setActionNotice(successMessage);
+      if (refresh) await load();
+      return isCurrentGeneration(generation);
+    } catch (error) {
+      if (isCurrentGeneration(generation)) {
+        setActionError(error instanceof Error && !(error instanceof TypeError) ? error.message : "Åtgärden misslyckades. Kontrollera anslutningen och försök igen.");
+      }
+      return false;
+    } finally {
+      if (isCurrentGeneration(generation)) {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+      }
+    }
+  }
+
+  const busy = loading || Boolean(pendingAction) || !hasLoaded;
+  const currentMaterialRows = inventory.filter((row) => row.material === matTab);
+  const currentAvailable = new Set(currentMaterialRows.length
+    ? currentMaterialRows.filter((row) => row.available).map((row) => row.color)
+    : ALL_COLORS.map((color) => color.value));
+  const colorRows: ColorOption[] = ALL_COLORS;
+  const visibleOrders = useMemo(() => filterOrders(orders, filters), [orders, filters]);
+  const pageCount = Math.max(1, Math.ceil(visibleOrders.length / 25));
+  const currentPage = Math.min(page, pageCount);
+  const pageOrders = visibleOrders.slice((currentPage - 1) * 25, currentPage * 25);
+  const openOrderCount = orders.filter((order) => order.status !== "Klar").length;
+  const orderTypes = Array.from(new Set([
+    ...Object.keys(orderTypeLabels),
+    ...orders.map((order) => order.type),
+    ...(filters.type === "all" ? [] : [filters.type]),
+  ]));
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
+
+  function updateFilters(next: Partial<OrderFilters>) {
+    setFilters((current) => ({ ...current, ...next }));
+    setPage(1);
+  }
 
   async function markComplete(id: number) {
-    await fetch(`/api/admin/orders/${id}`, { method: "PATCH" });
-    await load();
-  }
-  async function deleteOrder(id: number) {
-    if (!confirm("Radera order permanent?")) return;
-    await fetch(`/api/admin/orders/${id}`, { method: "DELETE" });
-    await load();
-  }
-  async function testDiscord() {
-    const r = await fetch("/api/admin/test", { method: "POST" });
-    if (r.ok) alert("Test skickat!");
-    else alert("Test misslyckades.");
+    await runAction(`complete-${id}`, () => fetch(`/api/admin/orders/${id}`, { method: "PATCH" }), "Ordern är markerad som klar.");
   }
 
-  const currentMaterialRows = inventory.filter(r => r.material === matTab);
-  const currentAvailable = new Set(currentMaterialRows.filter(r => r.available).map(r => r.color));
-  const colorRows: ColorOption[] = ALL_COLORS;
+  async function deleteOrder(order: OrderDTO) {
+    if (busy || !confirm(`Radera order ${order.orderNumber || order.id} för ${order.name} permanent?`)) return;
+    await runAction(`delete-order-${order.id}`, () => fetch(`/api/admin/orders/${order.id}`, { method: "DELETE" }), "Ordern är raderad.");
+  }
+
+  async function testDiscord() {
+    await runAction("test", () => fetch("/api/admin/test", { method: "POST" }), "Testnotisen har skickats.", false);
+  }
+
+  async function logout() {
+    const generation = lifecycle.current.generation;
+    const saved = await runAction("logout", () => fetch("/api/admin-logout", { method: "POST" }), "Du är utloggad.", false);
+    if (saved && isCurrentGeneration(generation)) void router.replace("/admin-login");
+  }
 
   async function toggleColor(color: string) {
     const available = !currentAvailable.has(color);
-    await fetch("/api/admin/inventory", {
+    await runAction(`color-${color}`, () => fetch("/api/admin/inventory", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ material: matTab, color, available }),
-    });
-    await load();
+    }), `Färgtillgängligheten för ${matTab} är uppdaterad.`);
   }
 
   async function setAllForMaterial(colors: string[]) {
-    await fetch("/api/admin/inventory", {
+    await runAction("colors-all", () => fetch("/api/admin/inventory", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ material: matTab, colorsAvailable: colors }),
-    });
-    await load();
+    }), `Färgtillgängligheten för ${matTab} är uppdaterad.`);
   }
 
-  async function createCoupon(e: React.FormEvent) {
-    e.preventDefault();
-    const res = await fetch("/api/admin/coupons", {
+  async function createCoupon(event: React.FormEvent) {
+    event.preventDefault();
+    const generation = lifecycle.current.generation;
+    const saved = await runAction("coupon-create", () => fetch("/api/admin/coupons", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        code: couponCode,
-        overallPercent,
-        plasticPercent,
-        removeStartFee,
-        removeExtraFileFee,
-        removeShipping,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.error || "Kunde inte skapa rabattkod.");
-      return;
-    }
+      body: JSON.stringify({ code: couponCode, overallPercent, plasticPercent, removeStartFee, removeExtraFileFee, removeShipping }),
+    }), "Rabattkoden är tillagd.");
+    if (!saved || !isCurrentGeneration(generation)) return;
     setCouponCode("");
     setOverallPercent(0);
     setPlasticPercent(0);
     setRemoveStartFee(false);
     setRemoveExtraFileFee(false);
     setRemoveShipping(false);
-    await load();
   }
 
-  async function deleteCoupon(id: number) {
-    if (!confirm("Radera rabattkod?")) return;
-    const res = await fetch(`/api/admin/coupons/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error || "Kunde inte radera rabattkod.");
-      return;
-    }
-    await load();
+  async function deleteCoupon(coupon: CouponRow) {
+    if (busy || !confirm(`Radera rabattkoden ${coupon.code}?`)) return;
+    await runAction(`delete-coupon-${coupon.id}`, () => fetch(`/api/admin/coupons/${coupon.id}`, { method: "DELETE" }), "Rabattkoden är raderad.");
   }
 
-  async function createTravelPeriod(e: React.FormEvent) {
-    e.preventDefault();
-    setTravelError("");
-    setSavingTravelPeriod(true);
-
-    try {
-      const res = await fetch("/api/admin/travel-periods", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startsOn, returnsOn }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setTravelError(data.error || "Kunde inte spara bortresan.");
-        return;
-      }
-
+  async function createTravelPeriod(event: React.FormEvent) {
+    event.preventDefault();
+    const generation = lifecycle.current.generation;
+    const saved = await runAction("travel-create", () => fetch("/api/admin/travel-periods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startsOn, returnsOn }),
+    }), "Bortresan är tillagd.");
+    if (saved && isCurrentGeneration(generation)) {
       setStartsOn("");
       setReturnsOn("");
-      await load();
-    } finally {
-      setSavingTravelPeriod(false);
     }
   }
 
   async function cancelTravelPeriod(id: number) {
-    if (!confirm("Avbryt bortresan? Varningen slutar visas på beställningssidorna.")) return;
-
-    const res = await fetch(`/api/admin/travel-periods/${id}`, { method: "PATCH" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setTravelError(data.error || "Kunde inte avbryta bortresan.");
-      return;
-    }
-    setTravelError("");
-    await load();
+    if (busy || !confirm("Avbryt bortresan? Varningen slutar visas på beställningssidorna.")) return;
+    await runAction(`travel-cancel-${id}`, () => fetch(`/api/admin/travel-periods/${id}`, { method: "PATCH" }), "Bortresan är avbruten.");
   }
 
   return (
-    <Layout>
+    <Layout title="Admin" noIndex>
       <section className="mx-auto max-w-6xl space-y-10">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-3xl font-bold">Admin</h1>
-          <div className="flex items-center gap-3">
-            <button onClick={testDiscord} className="rounded-xl border px-3 py-2 hover:bg-gray-50">Skicka testnotis</button>
-            <button onClick={() => load()} className="rounded-xl border px-3 py-2 hover:bg-gray-50">Uppdatera</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={testDiscord} disabled={busy} className="rounded-xl border px-3 py-2 hover:bg-gray-50 disabled:opacity-60">{pendingAction === "test" ? "Skickar…" : "Skicka testnotis"}</button>
+            <button type="button" onClick={() => load()} disabled={loading || Boolean(pendingAction)} className="rounded-xl border px-3 py-2 hover:bg-gray-50 disabled:opacity-60">{loading ? "Uppdaterar…" : "Uppdatera"}</button>
+            <button type="button" onClick={logout} disabled={loading || Boolean(pendingAction)} className="rounded-xl border px-3 py-2 hover:bg-gray-50 disabled:opacity-60">Logga ut</button>
           </div>
         </div>
 
+        <nav aria-label="Adminverktyg" className="flex flex-wrap gap-2 text-sm">
+          <a href="#admin-orders" className="rounded-xl border bg-white px-4 py-2">Ordrar{hasLoaded ? ` (${openOrderCount} ej klara)` : ""}</a>
+          <a href="#admin-inventory" className="rounded-xl border bg-white px-4 py-2">Lager & färger</a>
+          <a href="#admin-coupons" className="rounded-xl border bg-white px-4 py-2">Rabattkoder</a>
+          <a href="#admin-travel" className="rounded-xl border bg-white px-4 py-2">Bortresor</a>
+        </nav>
+
+        {loadError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{loadError} {hasLoaded ? "Senast hämtade uppgifter visas." : "Använd Uppdatera för att försöka igen."}</p>}
+        {(actionError || actionNotice) && (
+          <div className="sticky top-24 z-20">
+            {actionError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 shadow-sm">{actionError}</p>
+              : <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900 shadow-sm">{actionNotice}</p>}
+          </div>
+        )}
+
         {/* Travel periods */}
-        <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
+        <div id="admin-travel" className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
           <div className="mb-4">
             <h2 className="text-xl font-semibold">Bortresor</h2>
             <p className="mt-1 text-sm text-gray-600">
@@ -237,7 +314,9 @@ export default function Admin() {
             </p>
           </div>
 
-          <form onSubmit={createTravelPeriod} className="grid items-end gap-4 sm:grid-cols-3">
+          <form onSubmit={createTravelPeriod}>
+          <fieldset disabled={busy} className="grid items-end gap-4 sm:grid-cols-3">
+            <legend className="sr-only">Lägg till bortresa</legend>
             <div>
               <label htmlFor="travel-start" className="mb-1 block text-sm font-medium">Avresedatum</label>
               <input
@@ -264,12 +343,12 @@ export default function Admin() {
             <button
               className="rounded-xl bg-amber-500 px-4 py-2 text-amber-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
               type="submit"
-              disabled={savingTravelPeriod}
+              disabled={busy}
             >
-              {savingTravelPeriod ? "Sparar…" : "Lägg till bortresa"}
+              {pendingAction === "travel-create" ? "Sparar…" : "Lägg till bortresa"}
             </button>
+          </fieldset>
           </form>
-          {travelError ? <p role="alert" className="mt-3 text-sm text-red-700">{travelError}</p> : null}
 
           <div className="mt-5 overflow-auto">
             <table className="min-w-full text-sm">
@@ -284,7 +363,7 @@ export default function Admin() {
               <tbody>
                 {travelPeriods.length === 0 ? (
                   <tr>
-                    <td className="border p-2 text-gray-600" colSpan={4}>Inga bortresor registrerade.</td>
+                    <td className="border p-2 text-gray-600" colSpan={4}>{hasLoaded ? "Inga bortresor registrerade." : loading ? "Laddar bortresor…" : "Bortresorna kunde inte hämtas."}</td>
                   </tr>
                 ) : travelPeriods.map((period) => (
                   <tr key={period.id} className="odd:bg-white even:bg-gray-50">
@@ -306,7 +385,9 @@ export default function Admin() {
                         <button
                           type="button"
                           onClick={() => cancelTravelPeriod(period.id)}
-                          className="rounded-lg border border-red-300 px-3 py-1 text-red-700 hover:bg-red-50"
+                          disabled={busy}
+                          aria-label={`Avbryt bortresan ${formatSwedishDate(period.startsOn)}`}
+                          className="rounded-lg border border-red-300 px-3 py-1 text-red-700 hover:bg-red-50 disabled:opacity-60"
                         >
                           Avbryt
                         </button>
@@ -320,12 +401,17 @@ export default function Admin() {
         </div>
 
         {/* Coupons */}
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <div id="admin-coupons" className="rounded-2xl border bg-white p-4 shadow-sm">
           <h2 className="text-xl font-semibold mb-3">Rabattkoder</h2>
-          <form onSubmit={createCoupon} className="grid gap-4 lg:grid-cols-6">
+          <form onSubmit={createCoupon}>
+          <fieldset disabled={busy} className="grid gap-4 lg:grid-cols-6">
+            <legend className="sr-only">Lägg till rabattkod</legend>
             <div className="lg:col-span-2">
-              <label className="mb-1 block text-sm font-medium">Giltig sträng</label>
+              <label htmlFor="coupon-code" className="mb-1 block text-sm font-medium">Rabattkod</label>
               <input
+                id="coupon-code"
+                required
+                autoComplete="off"
                 value={couponCode}
                 onChange={(e) => setCouponCode(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2"
@@ -333,8 +419,9 @@ export default function Admin() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Total %</label>
+              <label htmlFor="coupon-total" className="mb-1 block text-sm font-medium">Total %</label>
               <input
+                id="coupon-total"
                 type="number"
                 min={0}
                 max={100}
@@ -344,8 +431,9 @@ export default function Admin() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Plast %</label>
+              <label htmlFor="coupon-plastic" className="mb-1 block text-sm font-medium">Plast %</label>
               <input
+                id="coupon-plastic"
                 type="number"
                 min={0}
                 max={100}
@@ -358,8 +446,8 @@ export default function Admin() {
               <input type="checkbox" checked={removeStartFee} onChange={(e) => setRemoveStartFee(e.target.checked)} />
               Ta bort startpris
             </label>
-            <button className="rounded-xl bg-black px-4 py-2 text-white hover:bg-black/90" type="submit">
-              Lägg till
+            <button disabled={busy} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-black/90 disabled:opacity-60" type="submit">
+              {pendingAction === "coupon-create" ? "Sparar…" : "Lägg till"}
             </button>
             <label className="flex items-center gap-2 text-sm lg:col-start-3">
               <input
@@ -373,6 +461,7 @@ export default function Admin() {
               <input type="checkbox" checked={removeShipping} onChange={(e) => setRemoveShipping(e.target.checked)} />
               Ta bort frakt
             </label>
+          </fieldset>
           </form>
 
           <div className="mt-4 overflow-auto">
@@ -391,7 +480,7 @@ export default function Admin() {
               <tbody>
                 {coupons.length === 0 ? (
                   <tr>
-                    <td className="border p-2 text-gray-600" colSpan={7}>Inga rabattkoder ännu.</td>
+                    <td className="border p-2 text-gray-600" colSpan={7}>{hasLoaded ? "Inga rabattkoder ännu." : loading ? "Laddar rabattkoder…" : "Rabattkoderna kunde inte hämtas."}</td>
                   </tr>
                 ) : coupons.map((coupon) => (
                   <tr key={coupon.id} className="odd:bg-white even:bg-gray-50">
@@ -402,7 +491,7 @@ export default function Admin() {
                     <td className="border p-2 text-center">{coupon.removeExtraFileFee ? "Ja" : "Nej"}</td>
                     <td className="border p-2 text-center">{coupon.removeShipping ? "Ja" : "Nej"}</td>
                     <td className="border p-2 text-center">
-                      <button onClick={() => deleteCoupon(coupon.id)} className="rounded-lg bg-red-600 px-3 py-1 text-white hover:bg-red-700">
+                      <button type="button" onClick={() => deleteCoupon(coupon)} disabled={busy} aria-label={`Radera rabattkoden ${coupon.code}`} className="rounded-lg bg-red-600 px-3 py-1 text-white hover:bg-red-700 disabled:opacity-60">
                         Radera
                       </button>
                     </td>
@@ -414,70 +503,97 @@ export default function Admin() {
         </div>
 
         {/* Orders */}
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <h2 className="text-xl font-semibold mb-3">Ordrar</h2>
-          {loading ? <p>Laddar…</p> : (
-            <div className="overflow-auto">
+        <div id="admin-orders" className="min-w-0 rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-xl font-semibold">Ordrar</h2>
+            {hasLoaded && <p className="text-sm text-gray-600">{orders.length} totalt · {openOrderCount} ej klara · {orders.length - openOrderCount} klara</p>}
+          </div>
+          <div className="my-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label htmlFor="order-search" className="mb-1 block text-sm font-medium">Sök order</label>
+              <input
+                id="order-search" type="search" value={filters.query}
+                onChange={(event) => updateFilters({ query: event.target.value })}
+                placeholder="Ordernr, kund, fil eller ort"
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </div>
+            <div>
+              <label htmlFor="order-status" className="mb-1 block text-sm font-medium">Status</label>
+              <select id="order-status" value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as OrderFilters["status"] })} className="w-full rounded-xl border px-3 py-2">
+                <option value="all">Alla statusar</option>
+                <option value="open">Ej klara</option>
+                <option value="complete">Klara</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="order-type" className="mb-1 block text-sm font-medium">Produkt</label>
+              <select id="order-type" value={filters.type} onChange={(event) => updateFilters({ type: event.target.value })} className="w-full rounded-xl border px-3 py-2">
+                <option value="all">Alla produkter</option>
+                {orderTypes.map((type) => <option key={type} value={type}>{orderTypeLabels[type] || type}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="order-delivery" className="mb-1 block text-sm font-medium">Leverans</label>
+              <select id="order-delivery" value={filters.delivery} onChange={(event) => updateFilters({ delivery: event.target.value as OrderFilters["delivery"] })} className="w-full rounded-xl border px-3 py-2">
+                <option value="all">Alla leveranssätt</option>
+                <option value="shipping">Frakt</option>
+                <option value="pickup">Avhämtning</option>
+              </select>
+            </div>
+          </div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+            {hasLoaded && <p role="status">{visibleOrders.length} av {orders.length} ordrar matchar</p>}
+            <button type="button" onClick={() => updateFilters({ query: "", status: "all", type: "all", delivery: "all" })} className="rounded-lg border px-3 py-2 hover:bg-gray-50">Rensa filter</button>
+          </div>
+          {loading && !hasLoaded ? <p role="status">Laddar ordrar…</p> : (
+            <div className="overflow-auto" role="region" aria-label="Orderlista" tabIndex={0} aria-busy={loading}>
               <table className="min-w-full text-sm">
-                <thead className="bg-gray-50">
+                <caption className="sr-only">Ordrar, nyaste först. Sida {currentPage} av {pageCount}.</caption>
+                <thead className="bg-gray-50 text-left">
                   <tr>
-                    <th className="p-2 border">#</th>
-                    <th className="p-2 border">Ordernr</th>
-                    <th className="p-2 border">Kund</th>
-                    <th className="p-2 border">Material/Färg</th>
-                    <th className="p-2 border">Filer</th>
-                    <th className="p-2 border">Pris</th>
-                    <th className="p-2 border">Rabatt</th>
-                    <th className="p-2 border">Status</th>
-                    <th className="p-2 border">Leverans</th>
-                    <th className="p-2 border">Åtgärd</th>
+                    {["Order", "Produkt", "Kund", "Filer", "Pris", "Status", "Leverans", "Åtgärd"].map((heading) => <th scope="col" key={heading} className="border p-2">{heading}</th>)}
                   </tr>
                 </thead>
                 <tbody>
-                {orders.map(o => (
-                  <tr key={o.id} className="odd:bg-white even:bg-gray-50">
-                    <td className="p-2 border">{o.id}</td>
-                    <td className="p-2 border">{o.orderNumber || "—"}</td>
-                    <td className="p-2 border">
-                      <div>{o.name}</div>
-                      <div className="text-gray-500">{o.email}</div>
+                {!pageOrders.length && (
+                  <tr><td colSpan={8} className="border p-6 text-center text-gray-600">
+                    {!hasLoaded ? "Orderlistan kunde inte hämtas." : orders.length ? "Inga ordrar matchar dina filter. Prova en annan sökning eller rensa filtren." : "Inga ordrar har kommit in ännu."}
+                  </td></tr>
+                )}
+                {pageOrders.map((order) => (
+                  <tr key={order.id} className="align-top odd:bg-white even:bg-gray-50">
+                    <th scope="row" className="border p-2 text-left font-normal">
+                      <div className="whitespace-nowrap font-medium">{order.orderNumber || `#${order.id}`}</div>
+                      <time dateTime={order.createdAt} className="mt-1 block whitespace-nowrap text-xs text-gray-500">
+                        {new Date(order.createdAt).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Stockholm" })}
+                      </time>
+                    </th>
+                    <td className="border p-2">{orderTypeLabels[order.type] || order.type}</td>
+                    <td className="border p-2">
+                      <div>{order.name}</div>
+                      <a href={`mailto:${order.email}`} className="break-all text-gray-600 underline">{order.email}</a>
+                      {order.phone && <a href={`tel:${order.phone.replace(/[^+0-9]/g, "")}`} className="mt-1 block whitespace-nowrap text-gray-600 underline">{order.phone}</a>}
                     </td>
-                    <td className="p-2 border">{o.material ?? "—"} / {o.color ?? "—"}</td>
-                    <td className="p-2 border">
-                      <div className="max-w-xs whitespace-pre-wrap break-words">
-                        {Array.isArray(o.files) ? o.files.join(", ") : String(o.files)}
-                      </div>
+                    <td className="border p-2">
+                      <div className="max-w-xs break-words">{order.files.length ? order.files.join(", ") : "—"}</div>
                     </td>
-                    <td className="p-2 border">{o.price} kr</td>
-                    <td className="p-2 border">
-                      {o.couponCode ? (
-                        <div>
-                          <div>{o.couponCode}</div>
-                          <div className="text-emerald-700">-{o.discount || 0} kr</div>
-                        </div>
-                      ) : "—"}
+                    <td className="border p-2">
+                      <div className="whitespace-nowrap font-medium">{order.price} kr</div>
+                      {order.couponCode && <div className="mt-1 text-xs text-emerald-700">{order.couponCode}: −{order.discount || 0} kr</div>}
                     </td>
-                    <td className="p-2 border">{o.status}</td>
-                    <td className="p-2 border">
-                      {o.deliveryMethod === "pickup" ? (
-                        <>
-                          <div className="font-medium text-emerald-700">Hämtas</div>
-                          <div>{o.phone ? `Tel: ${o.phone}` : "—"}</div>
-                        </>
-                      ) : (
-                        <>
-                          <div>{o.addressLine1}{o.addressLine2 ? `, ${o.addressLine2}` : ""}</div>
-                          <div>{o.postalCode} {o.city}</div>
-                          <div>{o.country}{o.phone ? `, Tel: ${o.phone}` : ""}</div>
-                        </>
-                      )}
+                    <td className="border p-2"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${order.status === "Klar" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>{order.status}</span></td>
+                    <td className="border p-2">
+                      {order.deliveryMethod === "pickup" ? <span className="font-medium text-emerald-700">Avhämtning</span> : <>
+                        <div>{order.addressLine1}{order.addressLine2 ? `, ${order.addressLine2}` : ""}</div>
+                        <div>{order.postalCode} {order.city}</div>
+                        <div>{order.country}</div>
+                      </>}
                     </td>
-                    <td className="p-2 border">
-                      <div className="flex gap-2">
-                        {o.status !== "Klar" && (
-                          <button onClick={() => markComplete(o.id)} className="rounded-lg bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-700">Markera klar</button>
-                        )}
-                        <button onClick={() => deleteOrder(o.id)} className="rounded-lg bg-red-600 px-3 py-1 text-white hover:bg-red-700">Radera</button>
+                    <td className="border p-2">
+                      <div className="flex flex-col items-start gap-2">
+                        {order.status !== "Klar" && <button type="button" onClick={() => markComplete(order.id)} disabled={busy} aria-label={`Markera order ${order.orderNumber || order.id} som klar`} className="whitespace-nowrap rounded-lg bg-emerald-600 px-3 py-2 text-white hover:bg-emerald-700 disabled:opacity-60">{pendingAction === `complete-${order.id}` ? "Sparar…" : "Markera klar"}</button>}
+                        <button type="button" onClick={() => deleteOrder(order)} disabled={busy} aria-label={`Radera order ${order.orderNumber || order.id}`} className="rounded-lg border border-red-300 px-3 py-2 text-red-700 hover:bg-red-50 disabled:opacity-60">{pendingAction === `delete-order-${order.id}` ? "Raderar…" : "Radera"}</button>
                       </div>
                     </td>
                   </tr>
@@ -486,15 +602,20 @@ export default function Admin() {
               </table>
             </div>
           )}
+          {pageCount > 1 && <nav aria-label="Sidor i orderlistan" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)} className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50">Föregående sida</button>
+            <span>Sida {currentPage} av {pageCount}</span>
+            <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)} className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50">Nästa sida</button>
+          </nav>}
         </div>
 
         {/* Inventory */}
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
+        <div id="admin-inventory" className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-xl font-semibold">Lager / Färg-tillgänglighet</h2>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Välj material">
               {(["PLA","PETG","ABS","ASA","TPU"] as const).map(m => (
-                <button key={m} onClick={()=>setMatTab(m)}
+                <button key={m} type="button" onClick={()=>setMatTab(m)} aria-pressed={matTab === m} disabled={Boolean(pendingAction)}
                   className={`rounded-lg px-3 py-1.5 border ${matTab===m ? "bg-black text-white" : "hover:bg-gray-50"}`}>
                   {m}
                 </button>
@@ -502,13 +623,16 @@ export default function Admin() {
             </div>
           </div>
 
+          {hasLoaded && !currentMaterialRows.length && <p className="mt-3 text-sm text-gray-600">Inga lagerinställningar är sparade för {matTab}. Alla färger visas som tillgängliga tills du ändrar dem här.</p>}
+
+          {!hasLoaded ? <p className="mt-4 text-sm text-gray-600">{loading ? "Laddar färgtillgänglighet…" : "Färgtillgängligheten kunde inte hämtas."}</p> : <>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
             {colorRows.map(c => {
               const on = currentAvailable.has(c.value);
               return (
-                <button key={c.value} onClick={()=>toggleColor(c.value)}
-                        className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left ${on ? "bg-emerald-50 border-emerald-200" : "hover:bg-gray-50"}`}>
-                  <span className="h-4 w-4 rounded-full border" style={{ backgroundColor: c.hex }} />
+                <button key={c.value} type="button" onClick={()=>toggleColor(c.value)} disabled={busy} aria-pressed={on} aria-label={`${matTab} ${c.label}`}
+                        className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left disabled:opacity-60 ${on ? "bg-emerald-50 border-emerald-200" : "hover:bg-gray-50"}`}>
+                  <span className="h-4 w-4 shrink-0 rounded-full border" style={{ backgroundColor: c.hex }} aria-hidden="true" />
                   <span className="text-sm">{c.label}</span>
                   <span className={`ml-auto text-xs ${on ? "text-emerald-700" : "text-gray-500"}`}>{on ? "Tillgänglig" : "Slut"}</span>
                 </button>
@@ -516,10 +640,11 @@ export default function Admin() {
             })}
           </div>
 
-          <div className="mt-4 flex gap-2">
-            <button onClick={()=>setAllForMaterial(colorRows.map(c=>c.value))} className="rounded-lg border px-3 py-2 hover:bg-gray-50">Markera alla som tillgängliga</button>
-            <button onClick={()=>setAllForMaterial([])} className="rounded-lg border px-3 py-2 hover:bg-gray-50">Markera alla som slut</button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={()=>setAllForMaterial(colorRows.map(c=>c.value))} className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-60">Markera alla som tillgängliga</button>
+            <button type="button" disabled={busy} onClick={()=>setAllForMaterial([])} className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-60">Markera alla som slut</button>
           </div>
+          </>}
         </div>
       </section>
     </Layout>

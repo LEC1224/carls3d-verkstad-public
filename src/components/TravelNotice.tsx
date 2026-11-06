@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { formatSwedishDate } from "../lib/travelPeriods";
+import { fetchCheckoutJson } from "../lib/checkoutRequest";
 
 type ActiveTravelPeriod = {
   id: number;
@@ -9,6 +10,15 @@ type ActiveTravelPeriod = {
 };
 
 const ORDER_PATHS = new Set(["/bestall", "/lithophane", "/minecraft-torch"]);
+
+function isTravelPeriod(value: unknown): value is ActiveTravelPeriod {
+  if (!value || typeof value !== "object") return false;
+  const period = value as ActiveTravelPeriod;
+  return Number.isInteger(period.id)
+    && typeof period.startsOn === "string" && Number.isFinite(Date.parse(period.startsOn))
+    && typeof period.returnsOn === "string" && Number.isFinite(Date.parse(period.returnsOn))
+    && Date.parse(period.returnsOn) > Date.parse(period.startsOn);
+}
 
 export default function TravelNotice() {
   const { pathname } = useRouter();
@@ -22,24 +32,39 @@ export default function TravelNotice() {
     }
 
     let disposed = false;
+    let activeRequest: AbortController | null = null;
 
     async function loadCurrentPeriod() {
+      if (disposed || document.hidden || activeRequest) return;
+      const controller = new AbortController();
+      activeRequest = controller;
       try {
-        const response = await fetch("/api/travel-period", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (!disposed) setPeriod(data.period ?? null);
+        const { response, data } = await fetchCheckoutJson("/api/travel-period", {
+          cache: "no-store", signal: controller.signal,
+        }, 10_000);
+        if (!response.ok || disposed || controller.signal.aborted) return;
+        if (data?.period === null) setPeriod(null);
+        else if (isTravelPeriod(data?.period)) setPeriod(data.period);
       } catch {
         // Orders should remain usable even if the notice cannot be loaded.
+      } finally {
+        if (activeRequest === controller) activeRequest = null;
       }
     }
 
-    loadCurrentPeriod();
+    const onVisibilityChange = () => {
+      if (!document.hidden) void loadCurrentPeriod();
+    };
+
+    void loadCurrentPeriod();
     const refreshTimer = window.setInterval(loadCurrentPeriod, 5 * 60 * 1000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       disposed = true;
+      activeRequest?.abort();
       window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [isOrderPage]);
 
@@ -49,6 +74,7 @@ export default function TravelNotice() {
     <aside
       role="status"
       aria-live="polite"
+      aria-atomic="true"
       className="border-b border-amber-300 bg-amber-100 text-amber-950"
     >
       <div className="mx-auto flex max-w-7xl items-start gap-3 px-4 py-4 sm:px-6 lg:px-8">

@@ -1,57 +1,16 @@
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import Layout from "../components/Layout";
 import Slideshow from "../components/Slideshow";
+import gallery from "../../public/slide/manifest.json";
 
-type Slide = { src: string; alt?: string; caption?: string };
-
-function labelFromFilename(path: string) {
-  const file = decodeURIComponent(path.split("/").pop() || "");
-  const base = file.replace(/\.[^.]+$/, "");
-  return base.replace(/[-_]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
+// Include the first image in the initial HTML instead of waiting for a browser fetch.
+const slides = gallery.images.map((slide) => ({
+  ...slide,
+  src: `/slide/${slide.src}`,
+  alt: slide.caption,
+}));
 
 export default function HomeLanding() {
-  const [slides, setSlides] = useState<Slide[]>([]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/slide/manifest.json", { cache: "no-store" });
-        if (!res.ok) {
-          // Fallback (utan captions)
-          const fallback = ["/slide/01.jpg", "/slide/02.jpg", "/slide/03.jpg", "/slide/04.jpg", "/slide/05.jpg"]
-            .map((src) => ({ src, caption: labelFromFilename(src) }));
-          setSlides(fallback);
-          return;
-        }
-        const j = await res.json();
-        if (Array.isArray(j?.images) && j.images.length > 0) {
-          const mapped: Slide[] = j.images
-            .map((it: any) => {
-              // Stöder både strängar och objekt { src, caption?, alt? }
-              if (typeof it === "string") {
-                const src = it.startsWith("/slide/") ? it : `/slide/${it}`;
-                return { src, caption: labelFromFilename(src) };
-              }
-              if (it && typeof it === "object" && typeof it.src === "string") {
-                const raw = it.src;
-                const src = raw.startsWith("/slide/") ? raw : `/slide/${raw}`;
-                const caption = it.caption ?? it.title ?? labelFromFilename(src);
-                const alt = it.alt ?? caption;
-                return { src, caption, alt };
-              }
-              return null;
-            })
-            .filter(Boolean);
-          setSlides(mapped);
-        }
-      } catch {
-        // Ignorera och lämna slides tomma
-      }
-    })();
-  }, []);
-
   return (
     <Layout>
       <section className="mx-auto max-w-7xl">
@@ -78,10 +37,8 @@ export default function HomeLanding() {
           </div>
         </div>
 
-        <br />
-
         {/* Slideshow */}
-        <div className="mx-auto max-w-6xl">
+        <div className="mx-auto mt-8 max-w-6xl">
           {/* fit="contain" gör att hela bilden syns */}
           <Slideshow images={slides} intervalMs={5000} aspect={16 / 9} fit="contain" />
         </div>
@@ -94,7 +51,7 @@ export default function HomeLanding() {
             { t: "Enkel process", d: "Ladda upp STL/OBJ, välj material & färg per fil. Offert direkt – betalning via Swish." },
           ].map((c) => (
             <div key={c.t} className="rounded-2xl border bg-white p-6 shadow-sm">
-              <h3 className="font-semibold">{c.t}</h3>
+              <h2 className="font-semibold">{c.t}</h2>
               <p className="mt-2 text-gray-700">{c.d}</p>
             </div>
           ))}
@@ -144,25 +101,25 @@ export default function HomeLanding() {
           {/* FAQ */}
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <div className="rounded-xl border p-4">
-              <h4 className="font-medium">Behöver jag välja infill/väggtjocklek?</h4>
+              <h3 className="font-medium">Behöver jag välja infill/väggtjocklek?</h3>
               <p className="mt-2 text-sm text-gray-700">
                 Nej, jag använder bra standarder. Skicka ett mail i samband med beställningen om du behöver extra hållfasthet eller av andra skäl vill specificera infill/väggtjocklek.
               </p>
             </div>
             <div className="rounded-xl border p-4">
-              <h4 className="font-medium">Tål delarna vatten/utomhus?</h4>
+              <h3 className="font-medium">Tål delarna vatten/utomhus?</h3>
               <p className="mt-2 text-sm text-gray-700">
                 3D-utskrifter blir aldrig helt vattentäta, men välj PETG eller ASA för utomhusbruk. PLA trivs bäst skyddad från UV och väta.
               </p>
             </div>
             <div className="rounded-xl border p-4">
-              <h4 className="font-medium">Hur väljer jag färg?</h4>
+              <h3 className="font-medium">Hur väljer jag färg?</h3>
               <p className="mt-2 text-sm text-gray-700">
                 Färgutbudet varierar. Se beställningssidan eller kontakta mig! Om du vill ha en specifik plasttyp och färg kan jag beställa en rulle för din utskrift, till högre pris.
               </p>
             </div>
             <div className="rounded-xl border p-4">
-              <h4 className="font-medium">Passform & toleranser</h4>
+              <h3 className="font-medium">Passform & toleranser</h3>
               <p className="mt-2 text-sm text-gray-700">
                 Standardtolerans fungerar oftast. Vid presspassning, skicka ett mail om vad delen ska passa mot och vilka mått som gäller.
               </p>

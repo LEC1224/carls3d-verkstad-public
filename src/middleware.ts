@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 
-function expectedCookieValue(secret: string) {
+async function expectedCookieValue(secret: string) {
   // stable, signed value; not reversible; same value checked in login API
-  return crypto.createHmac("sha256", secret).update("admin-ok").digest("base64url");
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode("admin-ok"));
+  return btoa(String.fromCharCode(...Array.from(new Uint8Array(signature)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Only protect the admin page (and anything under /admin if you add subroutes later)
@@ -15,7 +17,7 @@ export function middleware(req: NextRequest) {
     if (!secret) return NextResponse.json({ error: "ADMIN_SECRET saknas" }, { status: 500 });
 
     const cookie = req.cookies.get("admin_session")?.value;
-    const valid = cookie && cookie === expectedCookieValue(secret);
+    const valid = cookie && cookie === await expectedCookieValue(secret);
 
     if (!valid) {
       const url = req.nextUrl.clone();

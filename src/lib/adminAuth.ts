@@ -6,16 +6,27 @@ export function expectedAdminCookieValue(secret: string) {
 }
 
 export function isSafeAdminRedirect(next: unknown): next is string {
-  return typeof next === "string" && next.startsWith("/") && !next.startsWith("//");
+  if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//") || next.length > 2048) return false;
+  try {
+    const decoded = decodeURIComponent(next);
+    if (decoded.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(decoded)) return false;
+    return new URL(next, "https://admin.invalid").origin === "https://admin.invalid";
+  } catch {
+    return false;
+  }
 }
 
 export function isAdminRequest(req: NextApiRequest) {
   const secret = process.env.ADMIN_SECRET || "";
   const cookie = req.cookies.admin_session;
-  return Boolean(secret && cookie && cookie === expectedAdminCookieValue(secret));
+  if (!secret || !cookie) return false;
+  const actual = Buffer.from(cookie);
+  const expected = Buffer.from(expectedAdminCookieValue(secret));
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
 export function requireAdmin(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "private, no-store");
   if (!process.env.ADMIN_SECRET) {
     res.status(500).json({ error: "ADMIN_SECRET saknas i miljön" });
     return false;

@@ -1,14 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../../../lib/prisma";
 import { requireAdmin } from "../../../../lib/adminAuth";
 
-const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!requireAdmin(req, res)) return;
 
   const id = Number(req.query.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "Ogiltigt order-ID" });
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: "Ogiltigt order-ID" });
 
   try {
     if (req.method === "PATCH") {
@@ -26,8 +25,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ ok: true });
     }
 
+    res.setHeader("Allow", "PATCH, DELETE");
     return res.status(405).json({ error: "Endast PATCH/DELETE stöds." });
   } catch (e: any) {
+    if (e?.code === "P2025") return res.status(404).json({ error: "Beställningen hittades inte." });
     console.error("admin order mutation error:", e);
     return res.status(500).json({ error: "Kunde inte uppdatera/radera order." });
   }

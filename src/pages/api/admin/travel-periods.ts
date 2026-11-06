@@ -1,9 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../../lib/prisma";
 import { requireAdmin } from "../../../lib/adminAuth";
 import { dateOnlyToUtc, getTravelPeriodStatus } from "../../../lib/travelPeriods";
 
-const prisma = new PrismaClient();
 
 function withStatus<T extends { startsOn: Date; returnsOn: Date; cancelledAt: Date | null }>(period: T) {
   return { ...period, status: getTravelPeriodStatus(period) };

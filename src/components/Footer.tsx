@@ -7,7 +7,7 @@ export default function Footer() {
     <footer className="border-t bg-white">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 grid gap-6 sm:grid-cols-3">
         <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="Carl’s 3D‑verkstad" width={32} height={32} className="rounded-md" />
+          <Image src="/logo.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
           <div>
             <div className="font-semibold">Carl’s 3D‑verkstad</div>
             <div className="text-sm text-gray-500">3D‑utskrifter på beställning</div>

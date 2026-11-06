@@ -1,4 +1,7 @@
 import Layout from "../components/Layout";
+import Image from "next/image";
+import printer from "../../public/printer.png";
+import carl from "../../public/carl.jpg";
 
 export default function OmKontakt() {
   return (
@@ -7,9 +10,11 @@ export default function OmKontakt() {
         {/* 3D-printer section */}
         <div>
           <h1 className="text-3xl font-bold mb-4">Om tjänsten</h1>
-          <img
-            src="/printer.png"
+          <Image
+            src={printer}
             alt="BambuLab P1S 3D-skrivare"
+            sizes="(min-width: 720px) 672px, calc(100vw - 32px)"
+            priority
             className="w-full rounded-2xl shadow mb-4"
           />
           <p className="mb-2">
@@ -49,10 +54,12 @@ export default function OmKontakt() {
         {/* Who am I */}
         <div>
           <h2 className="text-2xl font-semibold mb-3">Vem är jag?</h2>
-          <img
-            src="/carl.jpg"
-            alt="Carl"
-            className="w-32 h-32 rounded-full shadow mb-4"
+          <Image
+            src={carl}
+            alt="Carl, som driver 3D-verkstaden"
+            width={128}
+            height={128}
+            className="w-32 h-32 rounded-full object-cover shadow mb-4"
           />
           <p className="mb-2">
             Jag som driver denna tjänst heter Carl och brinner för 3D-utskrifter,

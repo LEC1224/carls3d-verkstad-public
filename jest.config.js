@@ -1,6 +1,6 @@
 module.exports = {
   testEnvironment: "node",
-  testMatch: ["<rootDir>/tests/**/*.test.ts"],
+  testMatch: ["<rootDir>/tests/**/*.test.ts", "<rootDir>/tests/**/*.test.tsx"],
   modulePathIgnorePatterns: ["<rootDir>/.next/"],
   transform: {
     "^.+\\.tsx?$": [
@@ -9,6 +9,7 @@ module.exports = {
         tsconfig: {
           module: "commonjs",
           esModuleInterop: true,
+          jsx: "react-jsx",
         },
       },
     ],

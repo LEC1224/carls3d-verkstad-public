@@ -27,6 +27,7 @@ pnpm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+.local-review/
 
 # Caches
 .cache/

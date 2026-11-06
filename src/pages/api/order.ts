@@ -1,252 +1,64 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
-import formidable from "formidable";
 import fs from "fs";
 import path from "path";
-import { nanoid } from "nanoid";
 import { estimateFromFile } from "../../lib/estimation";
 import { priceCartBreakdown } from "../../lib/pricing";
 import { logPriceCalculation } from "../../lib/priceCalculationLog";
 import { notifyOrder } from "../../lib/notify";
 import { applyStandardCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
-import { applyDeliveryToBreakdown, normalizeDeliveryMethod } from "../../lib/delivery";
+import { applyDeliveryToBreakdown } from "../../lib/delivery";
+import { prisma } from "../../lib/prisma";
+import { parseCustomer, parseItemsMeta, singleField } from "../../lib/orderValidation";
+import { RequestError, publicError } from "../../lib/requestErrors";
+import { parseUpload, uploadedFiles } from "../../lib/uploads";
+import { persistOrder } from "../../lib/persistOrder";
+import { MAX_FILE_SIZE, MAX_MODEL_FILES, MAX_TOTAL_MODEL_SIZE } from "../../lib/validation";
+import { validateAvailableColors } from "../../lib/inventory";
+import { validatePriceBreakdown } from "../../lib/priceValidation";
 
 export const config = { api: { bodyParser: false } };
 
-const prisma = new PrismaClient();
-const ALLOWED_3D_EXT = new Set([".stl", ".obj"]);
-const MAX_FILE_SIZE = 100 * 1024 * 1024;
-
-function ensureDir(dir: string) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
-function parseForm(req: NextApiRequest, uploadDir: string) {
-  const form = formidable({ multiples: true, uploadDir, keepExtensions: true, maxFileSize: MAX_FILE_SIZE });
-  return new Promise<{ fields: formidable.Fields; files: formidable.Files }>((resolve, reject) => {
-    form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
-  });
-}
-function toArray<T>(v: T | T[] | undefined): T[] {
-  if (!v) return [];
-  return Array.isArray(v) ? v : [v];
-}
-function makeOrderNumber(id: number, createdAt: Date, name: string): string {
-  const year = createdAt.getFullYear();
-  const padded = id.toString().padStart(6, "0");
-  const clean = (name || "KUND").toUpperCase().replace(/[^A-ZÅÄÖ]/g, "").slice(0, 12) || "KUND";
-  return `SP-${year}-${padded}-${clean}`;
-}
-function sanitizeFileName(name: string): string {
-  // Keep letters/digits, dot, underscore, dash; replace others with underscore
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-function uniqueFileName(baseDir: string, desired: string): string {
-  // If "<desired>" exists, try "desired(2).ext", "(3)", ...
-  const { name, ext } = path.parse(desired);
-  let candidate = desired;
-  let i = 2;
-  while (fs.existsSync(path.join(baseDir, candidate))) {
-    candidate = `${name}(${i})${ext}`;
-    i++;
-  }
-  return candidate;
-}
-function cleanupFiles(files: Array<{ filepath?: string }>) {
-  for (const f of files) {
-    if (f.filepath) {
-      try { fs.unlinkSync(f.filepath); } catch {}
-    }
-  }
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Endast POST." });
-
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Endast POST." });
+  }
+  let upload: Awaited<ReturnType<typeof parseUpload>> | undefined;
   try {
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    ensureDir(uploadsDir);
-    const { fields, files } = await parseForm(req, uploadsDir);
-
-    // customer
-    const name = String(fields.name || "").trim();
-    const email = String(fields.email || "").trim();
-    const deliveryMethod = normalizeDeliveryMethod(fields.deliveryMethod);
-    const addressLine1 = deliveryMethod === "pickup" ? "" : String(fields.addressLine1 || "").trim();
-    const addressLine2 =
-      deliveryMethod === "pickup" ? null : String(fields.addressLine2 || "").trim() || null;
-    const postalCode = deliveryMethod === "pickup" ? "" : String(fields.postalCode || "").trim();
-    const city = deliveryMethod === "pickup" ? "" : String(fields.city || "").trim();
-    const country =
-      deliveryMethod === "pickup" ? "" : String(fields.country || "Sverige").trim();
-    const phone = String(fields.phone || "").trim();
-
-    if (!name || !email || !phone) {
-      return res.status(400).json({ error: "Fyll i namn, e-post och telefon." });
-    }
-    if (deliveryMethod === "shipping" && (!addressLine1 || !postalCode || !city)) {
-      return res.status(400).json({ error: "Fyll i adress, postnummer och ort för leveransen." });
-    }
-
-    // files + meta
-    const upFiles = toArray((files as any).files);
-    if (upFiles.length === 0) return res.status(400).json({ error: "Ladda upp minst en STL/OBJ-fil." });
-
-    let coupon = null;
-    try {
-      coupon = await requireValidCoupon(prisma, fields.couponCode);
-    } catch (e) {
-      cleanupFiles(upFiles);
-      throw e;
-    }
-
-    const meta = JSON.parse(String(fields.itemsMeta || "[]"));
-    if (!Array.isArray(meta) || meta.length !== upFiles.length) {
-      return res.status(400).json({ error: "itemsMeta saknas eller matchar inte antal filer." });
-    }
-
-    // validate & estimate (use temporary paths from formidable for estimation)
-    const entries = [];
-    for (let i = 0; i < upFiles.length; i++) {
-      const f = upFiles[i];
-      const m = meta[i] || {};
-      const origName = f.originalFilename || path.basename(f.filepath);
-      const ext = path.extname(origName).toLowerCase();
-      if (!ALLOWED_3D_EXT.has(ext)) return res.status(400).json({ error: `Endast STL/OBJ: ${origName}` });
-      if (f.size > MAX_FILE_SIZE) {
-        return res.status(400).json({
-          error: `Filen "${origName}" är för stor (max 100 MB). Kontakta info@carls3d.se för en lösning.`,
-        });
-      }
-
-      const est = estimateFromFile(f.filepath, m.material || "PLA");
-      const copies = Math.max(parseInt(String(m.copies || "1"), 10), 1);
-
-      entries.push({
-        index: i,
-        tempPath: f.filepath, // path where formidable wrote the upload
-        originalName: origName,
-        material: String(m.material || "PLA"),
-        color: String(m.color || "white"),
-        copies,
-        gramsEach: est.grams,
-        estimate: {
-          source: est.source,
-          fallbackReason: est.fallbackReason,
-          volumeMm3: est.volumeMm3,
-          layerCount: est.layerCount,
-          layerHeight: est.layerHeight,
-          xyStep: est.xyStep,
-          wallCount: est.wallCount,
-          topBottomLayers: est.topBottomLayers,
-          infillDensity: est.infillDensity,
-          shellVolumeMm3: est.shellVolumeMm3,
-          solidVolumeMm3: est.solidVolumeMm3,
-          infillVolumeMm3: est.infillVolumeMm3,
-          shellFactor: est.shellFactor,
-          solidFactor: est.solidFactor,
-        },
-      });
-    }
-
-    const pricingEntries = entries.map((e) => ({
-        index: e.index,
-        name: e.originalName,
-        material: e.material,
-        color: e.color,
-        copies: e.copies,
-        gramsEach: e.gramsEach,
-        estimate: e.estimate,
-      }));
+    upload = await parseUpload(req, {
+      maxFileSize: MAX_FILE_SIZE, maxTotalFileSize: MAX_TOTAL_MODEL_SIZE, maxFiles: MAX_MODEL_FILES,
+    });
+    const { fields, files } = upload;
+    const customer = parseCustomer(fields);
+    const { name, email, phone, deliveryMethod, addressLine1, addressLine2, postalCode, city, country } = customer;
+    const upFiles = uploadedFiles(files, "files");
+    if (!upFiles.length) throw new RequestError("Ladda upp minst en STL/OBJ-fil.");
+    const meta = parseItemsMeta(fields.itemsMeta, upFiles.length);
+    await validateAvailableColors(prisma, meta);
+    const coupon = await requireValidCoupon(prisma, singleField(fields.couponCode, "rabattkod"));
+    const pricingEntries = upFiles.map((file, index) => {
+      const name = file.originalFilename || path.basename(file.filepath);
+      if (!/\.(stl|obj)$/i.test(name)) throw new RequestError(`Endast STL/OBJ: ${name}`);
+      const item = meta[index];
+      const estimate = estimateFromFile(file.filepath, item.material);
+      return { index, name, ...item, gramsEach: estimate.grams, estimate };
+    });
     const breakdown = applyStandardCoupon(
-      applyDeliveryToBreakdown(
-        priceCartBreakdown(pricingEntries, upFiles.length),
-        deliveryMethod
-      ),
-      coupon
+      applyDeliveryToBreakdown(priceCartBreakdown(pricingEntries, upFiles.length), deliveryMethod), coupon
     );
+    validatePriceBreakdown(breakdown);
     logPriceCalculation("order", pricingEntries, breakdown);
     const price = breakdown.total;
-
-    // create order with temp orderNumber (required/unique), then pretty-fy
-    const tempOrderNumber = `TMP-${Date.now()}-${nanoid(6)}`;
-
-    // 1) Create order & placeholder file rows (with temporary filenames)
-    let created = await prisma.$transaction(async (tx) => {
-      const order = await tx.order.create({
-        data: {
-          orderNumber: tempOrderNumber,
-          name,
-          email,
-          type: "standard",
-          price,
-          discount: breakdown.coupon?.discount || 0,
-          couponCode: breakdown.coupon?.code || null,
-          status: "Ny",
-          deliveryMethod,
-          addressLine1,
-          addressLine2,
-          postalCode,
-          city,
-          country,
-          phone,
-        },
-      });
-
-      // Create placeholder records (we'll update filenames after final name is known)
-      for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        await tx.orderFile.create({
-          data: {
-            orderId: order.id,
-            filename: sanitizeFileName(e.originalName), // temp (without order prefix yet)
-            token: nanoid(10),
-          },
-        });
-      }
-
-      return order;
-    });
-
-    // 2) Compute pretty order number
-    const orderNumber = makeOrderNumber(created.id, created.createdAt, name);
-    const order = await prisma.order.update({ where: { id: created.id }, data: { orderNumber } });
-
-    // 3) Move/rename physical files to "<ORDERNUMBER>_<SANITIZED_ORIGINAL>"
-    //    and update DB filenames to the final names.
-    const dbFiles = await prisma.orderFile.findMany({
-      where: { orderId: order.id },
-      orderBy: { id: "asc" },
-    });
-
-    const finalFiles: { filename: string; token: string; meta: (typeof entries)[number] }[] = [];
-
-    for (let i = 0; i < dbFiles.length; i++) {
-      const dbf = dbFiles[i];
-      const metaE = entries[i];
-
-      const safeOrig = sanitizeFileName(metaE.originalName);
-      const desired = `${orderNumber}_${safeOrig}`;
-      const finalName = uniqueFileName(uploadsDir, desired);
-      const finalPath = path.join(uploadsDir, finalName);
-
-      // Move (rename) from temp path to final path
-      try {
-        fs.renameSync(metaE.tempPath, finalPath);
-      } catch {
-        // fallback copy+unlink if rename across devices fails
-        fs.copyFileSync(metaE.tempPath, finalPath);
-        try { fs.unlinkSync(metaE.tempPath); } catch {}
-      }
-
-      // Update DB record with final filename
-      await prisma.orderFile.update({
-        where: { id: dbf.id },
-        data: { filename: finalName },
-      });
-
-      finalFiles.push({ filename: finalName, token: dbf.token, meta: metaE });
-    }
+    const saved = await persistOrder(prisma, {
+      ...customer, type: "standard", price,
+      discount: breakdown.coupon?.discount || 0,
+      couponCode: breakdown.coupon?.code || null, status: "Ny",
+    }, upFiles);
+    const { order } = saved;
+    const { orderNumber } = order;
+    const finalFiles = saved.finalFiles.map((file, index) => ({ ...file, meta: pricingEntries[index] }));
+    const uploadsDir = path.resolve(process.cwd(), "uploads");
 
     // 4) Notify Discord with final filenames
     await notifyOrder({
@@ -312,8 +124,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     return res.status(200).json({ success: true, id: order.id, orderNumber, price, breakdown });
-  } catch (e: any) {
-    console.error("/api/order error:", e);
-    return res.status(e?.statusCode || 500).json({ error: e?.statusCode ? e.message : "Något gick fel vid beställning." });
+  } catch (error) {
+    console.error("/api/order error:", error);
+    const { status, ...body } = publicError(error, "Något gick fel vid beställning.");
+    return res.status(status).json(body);
+  } finally {
+    await upload?.cleanup().catch((error) => console.error("Kunde inte städa orderfiler:", error));
   }
 }

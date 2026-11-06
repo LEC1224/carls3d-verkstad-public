@@ -75,27 +75,30 @@ export async function notifyOrder(order: OrderLike) {
       description: `Beställning ${order.orderNumber ?? "#" + order.id ?? "—"} • ${now}`,
       color: order.type === "lithophane" ? 0x5865f2 : order.type === "minecraft-torch" ? 0xf59e0b : 0x57f287,
       fields: [
-        { name: "Namn", value: order.name || "—", inline: true },
-        { name: "E-post", value: order.email || "—", inline: true },
+        { name: "Namn", value: chunk(order.name || "—"), inline: true },
+        { name: "E-post", value: chunk(order.email || "—"), inline: true },
         { name: "Typ", value: order.type || "standard", inline: true },
         {
           name: "Pris",
           value: order.price != null ? `${order.price} kr` : "—",
           inline: true,
         },
-        { name: order.deliveryMethod === "pickup" ? "Avhämtning" : "Leverans", value: addressLines, inline: false },
+        { name: order.deliveryMethod === "pickup" ? "Avhämtning" : "Leverans", value: chunk(addressLines), inline: false },
         { name: "Produkter", value: itemsValue, inline: false },
       ],
     },
   ];
 
-  const payload = { username: "3D-Print Notifier", content: "", embeds };
+  const payload = { username: "3D-Print Notifier", content: "", embeds, allowed_mentions: { parse: [] } };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
@@ -103,5 +106,7 @@ export async function notifyOrder(order: OrderLike) {
     }
   } catch (err) {
     console.error("Kunde inte skicka Discord-notis:", err);
+  } finally {
+    clearTimeout(timeout);
   }
 }
