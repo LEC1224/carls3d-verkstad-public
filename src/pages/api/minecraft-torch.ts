@@ -6,7 +6,7 @@ import { persistOrder } from "../../lib/persistOrder";
 import { parseCustomer, positiveQuantity, singleField } from "../../lib/orderValidation";
 import { publicError } from "../../lib/requestErrors";
 import { MAX_TORCH_QUANTITY } from "../../lib/validation";
-import { notifyOrder } from "../../lib/notify";
+import { fulfillOrder as notifyOrder } from "../../lib/orderWorkflow";
 import { applyFixedCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
 import {
@@ -57,6 +57,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email: cleanEmail,
       type: "minecraft-torch",
       price,
+      discount: order.discount,
+      couponCode: order.couponCode,
       deliveryMethod,
       addressLine1: cleanAddressLine1,
       addressLine2: cleanAddressLine2,

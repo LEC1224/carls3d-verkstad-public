@@ -78,8 +78,8 @@ test("out-of-order disk writes keep model files paired with their original mater
     const files = uploadedFiles(upload.files, "files");
     const meta = parseItemsMeta(upload.fields.itemsMeta, files.length);
     expect(files.map((file, index) => ({ name: file.originalFilename, ...meta[index] }))).toEqual([
-      { name: "first.stl", material: "PLA", color: "white", copies: 1 },
-      { name: "second.stl", material: "TPU", color: "black", copies: 3 },
+      { name: "first.stl", material: "PLA", color: "white", copies: 1, purpose: "general" },
+      { name: "second.stl", material: "TPU", color: "black", copies: 3, purpose: "general" },
     ]);
   } finally {
     delayedEnd.mockRestore();

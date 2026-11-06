@@ -20,6 +20,7 @@ type OrderDTO = {
   discount?: number;
   couponCode?: string | null;
   status: string;
+  workflow?: { customerEmail: string; ownerEmail: string; print: string; printError?: string } | null;
   deliveryMethod?: "shipping" | "pickup";
   files: string[];
   addressLine1?: string; addressLine2?: string | null;
@@ -582,7 +583,14 @@ export default function Admin() {
                       <div className="whitespace-nowrap font-medium">{order.price} kr</div>
                       {order.couponCode && <div className="mt-1 text-xs text-emerald-700">{order.couponCode}: −{order.discount || 0} kr</div>}
                     </td>
-                    <td className="border p-2"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${order.status === "Klar" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>{order.status}</span></td>
+                    <td className="border p-2">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${order.status === "Klar" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>{order.status}</span>
+                      {order.workflow && <div className="mt-2 space-y-1 text-xs">
+                        <div>Kundmejl: {order.workflow.customerEmail === "sent" ? "Skickat" : order.workflow.customerEmail === "review" ? "Kontrollera" : "Köat"}</div>
+                        <div>Ägarmejl: {order.workflow.ownerEmail === "sent" ? "Skickat" : order.workflow.ownerEmail === "review" ? "Kontrollera" : "Köat"}</div>
+                        <div title={order.workflow.printError}>3MF: {order.workflow.print === "complete" ? "Skapad" : order.workflow.print === "review" ? "Manuell granskning krävs" : "Väntar på datorn"}</div>
+                      </div>}
+                    </td>
                     <td className="border p-2">
                       {order.deliveryMethod === "pickup" ? <span className="font-medium text-emerald-700">Avhämtning</span> : <>
                         <div>{order.addressLine1}{order.addressLine2 ? `, ${order.addressLine2}` : ""}</div>

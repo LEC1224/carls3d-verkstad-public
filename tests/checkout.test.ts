@@ -3,19 +3,19 @@ import { MAX_FILE_SIZE, MAX_MODEL_FILES, MAX_MODEL_COPIES } from "../src/lib/val
 
 describe("model checkout validation", () => {
   it("accepts the supported formats case-insensitively up to the per-file boundary", () => {
-    expect(validateModelCart([{ name: "Del.STL", size: MAX_FILE_SIZE }, { name: "Del.obj", size: 1024 }])).toBeNull();
+    expect(validateModelCart([{ name: "Del.STL", size: MAX_FILE_SIZE - 1024 }, { name: "Del.obj", size: 1024 }])).toBeNull();
   });
 
   it("rejects a disguised extension, empty model and oversized model", () => {
     expect(validateModelCart([{ name: "del.stl.exe", size: 1 }])).toContain("format");
     expect(validateModelCart([{ name: "del.obj", size: 0 }])).toContain("tom");
-    expect(validateModelCart([{ name: "del.stl", size: MAX_FILE_SIZE + 1 }])).toContain("100 MB");
+    expect(validateModelCart([{ name: "del.stl", size: MAX_FILE_SIZE + 1 }])).toContain("90 MB");
   });
 
   it("checks the complete prospective cart, including duplicated files", () => {
-    const file = { name: "modell.stl", size: MAX_FILE_SIZE };
+    const file = { name: "modell.stl", size: MAX_FILE_SIZE / 2 };
     expect(validateModelCart([file, file])).toBeNull();
-    expect(validateModelCart([file, file, { ...file, size: 1 }])).toContain("200 MB");
+    expect(validateModelCart([file, file, { ...file, size: 1 }])).toContain("90 MB");
     expect(validateModelCart(Array.from({ length: MAX_MODEL_FILES + 1 }, () => ({ ...file, size: 1 })))).toContain("högst");
   });
 

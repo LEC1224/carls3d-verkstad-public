@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "../../lib/prisma";
 import { requireAdmin } from "../../lib/adminAuth";
+import { listWorkflowJobs } from "../../lib/orderWorkflow";
 
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -17,6 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       include: { files: true },
     });
 
+    const workflowJobs = new Map(listWorkflowJobs().map((job) => [job.order.id, job]));
     const data = rows.map((o) => ({
       id: o.id,
       orderNumber: o.orderNumber,
@@ -29,6 +31,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       discount: o.discount,
       couponCode: o.couponCode,
       status: o.status,
+      workflow: workflowJobs.has(o.id) ? {
+        customerEmail: workflowJobs.get(o.id)!.email.customer.state,
+        ownerEmail: workflowJobs.get(o.id)!.email.owner.state,
+        print: workflowJobs.get(o.id)!.print.state,
+        printError: workflowJobs.get(o.id)!.print.error,
+      } : null,
       deliveryMethod: o.deliveryMethod,
 
       // shipping/contact

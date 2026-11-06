@@ -31,7 +31,7 @@ export function parseCustomer(fields: Record<string, unknown>) {
   const phone = singleField(fields.phone, "telefon");
   const deliveryMethod = normalizeDeliveryMethod(singleField(fields.deliveryMethod, "leveranssätt", "shipping"));
   if (!name || !email || !phone) throw new RequestError("Fyll i namn, e-post och telefon.");
-  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (email.length > 254 || !/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(email)) {
     throw new RequestError("Ange en giltig e-postadress.");
   }
   const addressLine1 = deliveryMethod === "pickup" ? "" : singleField(fields.addressLine1, "adress");
@@ -69,6 +69,7 @@ export function parseItemsMeta(value: unknown, fileCount: number) {
     const color = singleField(item.color, "färg", "white");
     if (!color || color.length > 80) throw new RequestError("Välj en giltig färg.");
     const copies = positiveQuantity(item.copies ?? 1, MAX_MODEL_COPIES, "antal kopior");
-    return { material, color, copies };
+    const purpose = item.purpose === "functional" ? "functional" as const : "general" as const;
+    return { material, color, copies, purpose };
   });
 }

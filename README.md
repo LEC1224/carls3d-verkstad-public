@@ -10,12 +10,13 @@ A Swedish website for 3D-print quotes and orders, lithophane lamps with personal
 - Choose PostNord delivery or pickup, apply a discount code, and keep the order number and total visible after submission.
 - Manage orders, searchable filters, available material colors, coupons, and travel notices at `/admin`.
 - Optionally notify Discord about new orders. Payment remains via Swish after order confirmation.
+- Preserve the deployed customer/owner email confirmations and durable print-package queue, including functional-part selection and admin delivery states. See `deployment/order-workflow.md` for configuration and recovery.
 
 ## Upload limits
 
 | Use | Formats | Limits |
 | --- | --- | --- |
-| Standard order / quote | STL, OBJ | 100 MB per file, 20 files and 200 MB per request |
+| Standard order / quote | STL, OBJ | 90 MB per file, 20 files and 90 MB per request |
 | Browser 3D preview | STL, OBJ | 20 MB per file; very detailed models may be skipped while ordering remains available |
 | Lithophane lamp | JPEG (`.jpg`/`.jpeg`), PNG, WebP | Exactly 4 images, 20 MB per image |
 
@@ -37,7 +38,7 @@ npx prisma db push
 npm run dev -- --hostname 127.0.0.1 --port 3100
 ```
 
-Edit `.env.local` to set a local `ADMIN_PASSWORD` and a random `ADMIN_SECRET`. Keep `DISCORD_WEBHOOK` empty during local testing so test orders cannot send notifications. The development site is available at [http://127.0.0.1:3100](http://127.0.0.1:3100).
+Edit `.env.local` to set a local `ADMIN_PASSWORD` and a random `ADMIN_SECRET`. Keep `DISCORD_WEBHOOK`, `RESEND_API_KEY` and `ORDER_WORKFLOW_TOKEN` empty during local testing. Use the checkout's own workflow directory and never point it at production. The development site is available at [http://127.0.0.1:3100](http://127.0.0.1:3100).
 
 The current Prisma schema uses `provider = "sqlite"` and the literal URL `file:./dev.db`, which resolves to `prisma/dev.db`. **`DATABASE_URL` is not read by this schema.** Changing database configuration requires an explicit schema change and separate migration planning. The setup above initializes a local database; it is not a production migration.
 

@@ -18,7 +18,7 @@ type Breakdown = {
   items: Array<{ index: number; name: string; material: string; color: string; copies: number;
     gramsEach: number; perGram: number; materialCost: number }>;
 };
-type CartItem = { id: string; file: File; material: string; color: string; copies: string; availColors: ColorOption[] };
+type CartItem = { id: string; file: File; material: string; color: string; copies: string; purpose: "general" | "functional"; availColors: ColorOption[] };
 type Confirmation = { orderNumber: string; email: string; deliveryMethod: DeliveryMethod; breakdown: Breakdown };
 
 const money = (value: number) => value.toLocaleString("sv-SE", { maximumFractionDigits: 2 }) + " kr";
@@ -29,6 +29,7 @@ function itemForm(items: CartItem[], couponCode: string, deliveryMethod: Deliver
   for (const item of items) form.append("files", item.file);
   form.append("itemsMeta", JSON.stringify(items.map((item) => ({
     name: item.file.name, material: item.material, color: item.color, copies: Number(item.copies),
+    purpose: item.purpose,
   }))));
   form.append("couponCode", couponCode.trim());
   form.append("deliveryMethod", deliveryMethod);
@@ -45,6 +46,8 @@ export default function OrderPage() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const colorsCache = useRef<Record<string, { colors: ColorOption[]; expires: number }>>({});
   const colorsRequests = useRef<Record<string, Promise<ColorOption[]>>>({});
+  const [materialAvailability, setMaterialAvailability] = useState<Record<string, boolean>>({});
+  const availabilityMounted = useRef(true);
   const nextItemId = useRef(0);
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
   const [busyQuote, setBusyQuote] = useState(false);
@@ -72,6 +75,18 @@ export default function OrderPage() {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   useEffect(() => { if (confirmation) confirmationRef.current?.focus(); }, [confirmation]);
   useEffect(() => () => { quoteController.current?.abort(); quoteGate.current.invalidate(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    availabilityMounted.current = true;
+    void Promise.allSettled(SUPPORTED_MATERIALS.map((material) => loadColorsFor(material))).then(() => {
+      if (cancelled) return;
+      setMaterialDefault((current) => {
+        if (colorsCache.current[current]?.colors.length !== 0) return current;
+        return SUPPORTED_MATERIALS.find((material) => (colorsCache.current[material]?.colors.length ?? 0) > 0) || current;
+      });
+    });
+    return () => { cancelled = true; availabilityMounted.current = false; };
+  }, []);
   useEffect(() => {
     if (!busyQuote) { setShowSlowQuoteHint(false); return; }
     const timeout = window.setTimeout(() => setShowSlowQuoteHint(true), 5000);
@@ -102,11 +117,15 @@ export default function OrderPage() {
         throw new Error("Kunde inte läsa färger.");
       }
       colorsCache.current[material] = { colors, expires: Date.now() + 60_000 };
+      if (availabilityMounted.current) setMaterialAvailability((current) => ({ ...current, [material]: colors.length > 0 }));
       return colors;
     })();
     colorsRequests.current[material] = request;
     try { return await request; }
     finally { delete colorsRequests.current[material]; }
+  }
+  function materialOptions() {
+    return SUPPORTED_MATERIALS.map((material) => <option key={material} value={material} disabled={materialAvailability[material] === false}>{material}{materialAvailability[material] === false ? " (slut)" : ""}</option>);
   }
   async function onFilesChosen(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
@@ -126,7 +145,7 @@ export default function OrderPage() {
       if (currentError) { setError(currentError); return; }
       updateItems((previous) => [...previous, ...files.map((file) => ({
         id: "model-" + (++nextItemId.current), file, material: materialDefault,
-        color: colors[0].value, copies: "1", availColors: colors,
+        color: colors[0].value, copies: "1", purpose: "general" as const, availColors: colors,
       }))]);
       setConfirmation(null);
       invalidateQuote();
@@ -175,7 +194,7 @@ export default function OrderPage() {
       }
     } finally { setPendingMaterials((previous) => previous.filter((entry) => entry !== id)); }
   }
-  function changeItem(id: string, change: Partial<Pick<CartItem, "color" | "copies">>) {
+  function changeItem(id: string, change: Partial<Pick<CartItem, "color" | "copies" | "purpose">>) {
     updateItems((previous) => previous.map((item) => item.id === id ? { ...item, ...change } : item));
     invalidateQuote();
   }
@@ -314,13 +333,13 @@ export default function OrderPage() {
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div className="min-w-0 sm:col-span-2">
                       <label htmlFor="model-files" className="mb-1 block text-sm font-medium">STL- eller OBJ-filer</label>
-                      <input id="model-files" ref={fileInputRef} type="file" accept=".stl,.obj" multiple onChange={onFilesChosen} disabled={busyFiles} aria-describedby="model-file-help" className={inputClass + " cursor-pointer text-sm"} />
-                      <p id="model-file-help" className="mt-2 text-xs text-gray-600">Max 100 MB per fil, 200 MB totalt och {MAX_MODEL_FILES} filer. Varje extra fil kostar 10 kr; kopior räknas inte som extra filer.</p>
-                      <p className="mt-2 text-sm text-gray-600" role="status">{busyFiles ? "Hämtar tillgängliga färger…" : ""}</p>
+                      <input id="model-files" ref={fileInputRef} type="file" accept=".stl,.obj" multiple onChange={onFilesChosen} disabled={busyFiles || materialAvailability[materialDefault] === false} aria-describedby="model-file-help" className={inputClass + " cursor-pointer text-sm"} />
+                      <p id="model-file-help" className="mt-2 text-xs text-gray-600">Max 90 MB per fil, 90 MB totalt och {MAX_MODEL_FILES} filer. Varje extra fil kostar 10 kr; kopior räknas inte som extra filer.</p>
+                      <p className="mt-2 text-sm text-gray-600" role="status">{busyFiles ? "Hämtar tillgängliga färger…" : materialAvailability[materialDefault] === false ? `${materialDefault} är slut. Välj ett annat material.` : ""}</p>
                     </div>
                     <div>
                       <div className="mb-1 flex items-center text-sm font-medium"><label htmlFor="default-material">Standardmaterial</label><MaterialsInfo material={materialDefault} /></div>
-                      <select id="default-material" value={materialDefault} onChange={(event) => setMaterialDefault(event.target.value)} disabled={busyFiles} className={inputClass}>{SUPPORTED_MATERIALS.map((material) => <option key={material}>{material}</option>)}</select>
+                      <select id="default-material" value={materialDefault} onChange={(event) => setMaterialDefault(event.target.value)} disabled={busyFiles} className={inputClass}>{materialOptions()}</select>
                       <p className="mt-2 text-xs text-gray-600">Gäller filer du lägger till härnäst.</p>
                     </div>
                   </div>
@@ -338,9 +357,15 @@ export default function OrderPage() {
                         </div>
                         <div className="mt-3 grid gap-3 sm:grid-cols-3">
                           <div><div className="mb-1 flex items-center text-sm font-medium"><label htmlFor={item.id + "-material"}>Material</label><MaterialsInfo material={item.material} /></div>
-                            <select id={item.id + "-material"} value={item.material} disabled={materialPending} onChange={(event) => changeItemMaterial(item.id, event.target.value)} className={inputClass}>{SUPPORTED_MATERIALS.map((material) => <option key={material}>{material}</option>)}</select>
+                            <select id={item.id + "-material"} value={item.material} disabled={materialPending} onChange={(event) => changeItemMaterial(item.id, event.target.value)} className={inputClass}>{materialOptions()}</select>
                           </div>
                           <ColorSelect id={item.id + "-color"} value={item.color} onChange={(color) => changeItem(item.id, { color })} options={item.availColors} disabled={materialPending} />
+                          <div><label htmlFor={item.id + "-purpose"} className="mb-1 block text-sm font-medium">Användning</label>
+                            <select id={item.id + "-purpose"} value={item.purpose} onChange={(event) => changeItem(item.id, { purpose: event.target.value as CartItem["purpose"] })} className={inputClass}>
+                              <option value="general">Dekoration / allmänt bruk</option>
+                              <option value="functional">Funktionell del / extra styrka</option>
+                            </select>
+                          </div>
                           <div><label htmlFor={item.id + "-copies"} className="mb-1 block text-sm font-medium">Kopior</label>
                             <input id={item.id + "-copies"} type="number" inputMode="numeric" min={1} max={MAX_MODEL_COPIES} step={1} required value={item.copies} onChange={(event) => changeItem(item.id, { copies: event.target.value })} className={inputClass} />
                           </div>

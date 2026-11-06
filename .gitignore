@@ -37,6 +37,8 @@ pnpm-debug.log*
 prisma/*.db
 prisma/*.db-*
 uploads/
+data/
+__pycache__/
 
 # Misc local files
 .DS_Store

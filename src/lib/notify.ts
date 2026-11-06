@@ -5,6 +5,7 @@ export interface NotifyItem {
   color: string;
   copies: number;
   gramsEach: number;
+  purpose?: "general" | "functional";
 }
 
 export interface OrderLike {
@@ -14,6 +15,8 @@ export interface OrderLike {
   email?: string;
   type?: "standard" | "lithophane" | string;
   price?: number;
+  discount?: number;
+  couponCode?: string | null;
   deliveryMethod?: "shipping" | "pickup";
 
   // leverans

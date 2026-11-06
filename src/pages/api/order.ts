@@ -4,7 +4,7 @@ import path from "path";
 import { estimateFromFile } from "../../lib/estimation";
 import { priceCartBreakdown } from "../../lib/pricing";
 import { logPriceCalculation } from "../../lib/priceCalculationLog";
-import { notifyOrder } from "../../lib/notify";
+import { fulfillOrder as notifyOrder } from "../../lib/orderWorkflow";
 import { applyStandardCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
 import { applyDeliveryToBreakdown } from "../../lib/delivery";
@@ -68,6 +68,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email,
       type: "standard",
       price,
+      discount: order.discount,
+      couponCode: order.couponCode,
       deliveryMethod,
       addressLine1,
       addressLine2,
@@ -81,6 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         material: f.meta.material,
         color: f.meta.color,
         copies: f.meta.copies,
+        purpose: f.meta.purpose,
         gramsEach: Math.round(f.meta.gramsEach),
       })),
     });

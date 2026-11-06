@@ -34,7 +34,7 @@ beforeEach(() => {
   });
   global.fetch = fetchMock;
 });
-afterEach(() => { jest.useRealTimers(); });
+afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
 
 async function addModel(user: ReturnType<typeof userEvent.setup>) {
   await user.upload(screen.getByLabelText("STL- eller OBJ-filer"), new File(["solid model"], "modell.stl"));
@@ -53,14 +53,15 @@ async function pickupDetails(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Telefon"), "0701234567");
 }
 
-test("rejects unsupported and empty files locally without a network request", async () => {
+test("rejects unsupported and empty files without uploading them", async () => {
   render(<OrderPage />);
   const input = screen.getByLabelText("STL- eller OBJ-filer");
   fireEvent.change(input, { target: { files: [new File(["not a model"], "modell.exe")] } });
   expect(await screen.findByRole("alert")).toHaveTextContent("format som inte stöds");
   fireEvent.change(input, { target: { files: [new File([], "modell.stl")] } });
   expect(screen.getByRole("alert")).toHaveTextContent("är tom");
-  expect(fetchMock).not.toHaveBeenCalled();
+  await waitFor(() => expect(fetchMock.mock.calls).toHaveLength(5));
+  expect(fetchMock.mock.calls.every(([url]) => url.startsWith("/api/availability"))).toBe(true);
 });
 
 test("does not offer unavailable colors when the inventory request fails", async () => {
@@ -125,6 +126,7 @@ test("retains the previous material when the new material has no available color
   render(<OrderPage />);
   await addModel(user);
   await quote(user);
+  jest.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
   fetchMock.mockResolvedValueOnce(response([]));
   await user.selectOptions(screen.getByLabelText("Material"), "ASA");
   expect(await screen.findByRole("alert")).toHaveTextContent("Inga färger är tillgängliga för ASA");
@@ -227,6 +229,7 @@ test("removing an item with a stalled material lookup immediately releases the r
   render(<OrderPage />);
   await addModel(user);
   await user.click(screen.getByRole("button", { name: "Duplicera modell.stl" }));
+  jest.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
   fetchMock.mockReturnValueOnce(pending.promise);
   await user.selectOptions(screen.getAllByLabelText("Material")[0], "ASA");
   expect(screen.getByRole("button", { name: "Beräkna pris" })).toBeDisabled();
@@ -248,4 +251,17 @@ test("recovers quote controls after a stalled quote without discarding the model
   expect(screen.getByRole("alert")).toHaveTextContent("Prisberäkningen tog för lång tid");
   expect(screen.getByRole("button", { name: "Beräkna pris" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Ta bort modell.stl" })).toBeInTheDocument();
+});
+
+test("preserves sold-out material selection and functional-purpose metadata", async () => {
+  fetchMock.mockImplementation(async (url: string) => url === "/api/quote" ? response({ breakdown }) : response(url.endsWith("=PLA") ? [] : colors));
+  const user = userEvent.setup();
+  render(<OrderPage />);
+  await waitFor(() => expect(screen.getByLabelText("Standardmaterial")).toHaveValue("PETG"));
+  expect(screen.getByRole("option", { name: "PLA (slut)" })).toBeDisabled();
+  await addModel(user);
+  await user.selectOptions(screen.getByLabelText("Användning"), "functional");
+  await quote(user);
+  const form = fetchMock.mock.calls.find(([url]) => url === "/api/quote")![1].body as FormData;
+  expect(JSON.parse(String(form.get("itemsMeta")))[0]).toMatchObject({ material: "PETG", purpose: "functional" });
 });

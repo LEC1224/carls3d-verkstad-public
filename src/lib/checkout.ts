@@ -13,11 +13,11 @@ export function validateModelCart(files: readonly ModelFile[]): string | null {
     }
     if (file.size === 0) return `”${file.name}” är tom. Välj en fil som innehåller en 3D-modell.`;
     if (!Number.isFinite(file.size) || file.size < 0 || file.size > MAX_FILE_SIZE) {
-      return `”${file.name}” är för stor (max 100 MB per fil). Kontakta info@carls3d.se för hjälp.`;
+      return `”${file.name}” är för stor (max 90 MB per fil). Kontakta info@carls3d.se för hjälp.`;
     }
   }
   if (files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_MODEL_SIZE) {
-    return "Filerna får tillsammans vara högst 200 MB. Kontakta info@carls3d.se för större beställningar.";
+    return "Filerna får tillsammans vara högst 90 MB. Kontakta info@carls3d.se för större beställningar.";
   }
   return null;
 }

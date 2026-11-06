@@ -92,7 +92,7 @@ async function main() {
       assert.match(await response.text(), /noindex/);
     });
     await check('Admin data remains private without authentication', async () => {
-      for (const route of ['/api/orders', '/api/admin/inventory', '/api/admin/coupons', '/api/admin/travel-periods']) {
+      for (const route of ['/api/orders', '/api/admin/inventory', '/api/admin/coupons', '/api/admin/travel-periods', '/api/order-workflow']) {
         const response = await request(route);
         assert.equal(response.status, 401, route);
         assert.match(response.headers.get('cache-control') || '', /no-store/, route);

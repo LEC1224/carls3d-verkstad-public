@@ -26,7 +26,11 @@ test.each([0, -1, 1.1, "1abc", "", "Infinity", 1000, null, {}, []])("rejects inv
 test("accepts boundary quantities and normalizes supported materials", () => {
   expect(positiveQuantity("999", 999, "kopior")).toBe(999);
   expect(parseItemsMeta([JSON.stringify([{ material: "petg", copies: 2, color: "black" }])], 1))
-    .toEqual([{ material: "PETG", copies: 2, color: "black" }]);
+    .toEqual([{ material: "PETG", copies: 2, color: "black", purpose: "general" }]);
+});
+
+test("retains a functional part's purpose for the existing print workflow", () => {
+  expect(parseItemsMeta(JSON.stringify([{ material: "PLA", color: "white", copies: 2, purpose: "functional" }]), 1)[0].purpose).toBe("functional");
 });
 
 test.each(["{", "{}", "[]", "[null]", '[{"material":"GOLD"}]', '[{"copies":"NaN"}]', '[{"color":""}]'])

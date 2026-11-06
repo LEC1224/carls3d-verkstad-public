@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import fs from "fs";
 import path from "path";
-import { notifyOrder } from "../../lib/notify";
+import { fulfillOrder as notifyOrder } from "../../lib/orderWorkflow";
 import { applyFixedCoupon } from "../../lib/coupons";
 import { requireValidCoupon } from "../../lib/couponServer";
 import { LITHOPHANE_SHIPPING_COST, priceBeforeCouponForDelivery } from "../../lib/delivery";
@@ -53,6 +53,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email,
       type: "lithophane",
       price,
+      discount: order.discount,
+      couponCode: order.couponCode,
       deliveryMethod,
       addressLine1,
       addressLine2,
